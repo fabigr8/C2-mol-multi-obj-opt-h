@@ -1,0 +1,81 @@
+# Main experiment config (brief SS3, SS10). Frozen at Phase 8 pre-registration;
+# any later change to thresholds/theta/budget must be logged as a new experiment
+# (brief SS8).
+name: main
+seeds: [0, 1, 2, 3, 4]
+k_top: 100
+starting_population_path: data/processed/starting_population.csv # TODO(phase 2): source not yet decided
+reference_set_path: data/reference/reference_union.csv
+results_dir: results
+
+objective:
+  normalization: drugbank_percentile
+  aggregation: weighted_geometric_mean
+  components:
+    - name: Solubility_AqSolDB
+      source: admet-ai
+      direction: max
+      weight: 0.2
+    - name: hERG
+      source: admet-ai
+      direction: min
+      weight: 0.2
+    - name: CYP3A4_Veith
+      source: admet-ai
+      direction: min
+      weight: 0.2
+    - name: Caco2_Wang
+      source: admet-ai
+      direction: max
+      weight: 0.2
+    - name: QED
+      source: rdkit
+      direction: max
+      weight: 0.2
+
+ga:
+  population_size: 200
+  n_generations: 100
+  elitism_fraction: 0.1
+  tournament_k: 3
+  crossover_enabled: false
+  crossover_rate: 0.0
+  mutation_rate: 0.1
+
+applicability_domain:
+  theta_values: [0.3, 0.4, 0.5]
+  fingerprint_radius: 2
+  fingerprint_bits: 2048
+
+synthesizability:
+  sa_score_threshold: 6.0 # TODO(phase 8): pending pre-registration sign-off
+
+arms:
+  - name: D
+    description: random sample from starting library, no optimization
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: A
+    description: unconstrained optimization
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: B
+    description: applicability-domain constrained optimization
+    use_ad_constraint: true
+    use_synth_constraint: false
+  - name: C
+    description: applicability-domain + synthesizability constrained optimization
+    use_ad_constraint: true
+    use_synth_constraint: true
+
+# Implausibility battery (brief SS4/SS8): fails if >= fail_threshold_count of the
+# thresholds below are violated. Placeholder values pending Phase 8 sign-off.
+implausibility_battery:
+  mw_max: 700
+  clogp_max: 7
+  tpsa_max: 200
+  rotatable_bonds_max: 15
+  sa_score_max: 6.0
+  pains_alerts_max: 0
+  brenk_alerts_max: 0
+  fail_threshold_count: 2
