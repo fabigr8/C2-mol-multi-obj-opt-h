@@ -47,6 +47,7 @@ applicability_domain:
   theta_values: [0.3, 0.4, 0.5]
   fingerprint_radius: 2
   fingerprint_bits: 2048
+  fingerprint_cache_path: data/processed/reference_fingerprints.npz
 
 synthesizability:
   sa_score_threshold: 6.0 # TODO(phase 8): pending pre-registration sign-off

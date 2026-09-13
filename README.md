@@ -62,6 +62,6 @@ Each experiment run is driven by a single YAML file (`configs/smoke.yaml`,
 ## Status
 
 Phase 0 (environment spike), Phase 1 (scaffold), Phase 2 (data layer), Phase 3
-(objective module), and Phase 4 (SELFIES genetic algorithm: mutation/crossover
-operators, tournament selection + elitism, full trajectory logging) are complete.
+(objective module), Phase 4 (SELFIES genetic algorithm), and Phase 5 (constraint
+modules: applicability-domain and synthesizability soft penalties) are complete.
 See `docs/PLAN.md` for phase-by-phase status and remaining work.

@@ -57,6 +57,7 @@ class ApplicabilityDomainConfig:
     theta_values: tuple[float, ...]
     fingerprint_radius: int
     fingerprint_bits: int
+    fingerprint_cache_path: str
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ def load_config(path: str | Path) -> ExperimentConfig:
         theta_values=tuple(ad_raw["theta_values"]),
         fingerprint_radius=ad_raw["fingerprint_radius"],
         fingerprint_bits=ad_raw["fingerprint_bits"],
+        fingerprint_cache_path=ad_raw["fingerprint_cache_path"],
     )
 
     synthesizability = SynthesizabilityConfig(**raw["synthesizability"])
