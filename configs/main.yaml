@@ -4,7 +4,7 @@
 name: main
 seeds: [0, 1, 2, 3, 4]
 k_top: 100
-starting_population_path: data/processed/starting_population.csv # TODO(phase 2): source not yet decided
+starting_population_path: data/processed/starting_population.csv # scripts/build_starting_population.py
 reference_set_path: data/reference/reference_union.csv
 results_dir: results
 

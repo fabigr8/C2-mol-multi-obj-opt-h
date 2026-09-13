@@ -44,7 +44,7 @@ Reference set exported to `data/reference/` (TDC `ADMET_Group` `train_val` split
 
 See "Phase 0 results" above. Artifacts: `pyproject.toml`, `uv.lock`, `.gitignore`, `scripts/spike_admet.py`, `scripts/spike_admet_variants.py`, `scripts/export_tdc_reference.py`, `data/reference/`.
 
-## Phase 1 — Scaffold
+## Phase 1 — Scaffold — DONE
 
 - `git init`, `.gitignore` (venv, caches, `data/raw`, large artifacts).
 - `pyproject.toml` + `uv.lock`; `src/` layout package (e.g. `rhmoo/`).
@@ -53,11 +53,12 @@ See "Phase 0 results" above. Artifacts: `pyproject.toml`, `uv.lock`, `.gitignore
 - Structured run logging: config hash, git SHA, timestamp, wall time, molecules evaluated → JSONL.
 - `pytest` harness + CI-style smoke target that must finish under 60s.
 
-## Phase 2 — Data layer
+Artifacts: `src/rhmoo/{config,run_log,runner}.py`, `configs/{smoke,main}.yaml`, `Makefile`, `tests/test_{config,run_log,runner}.py`.
 
-- **Starting population.** Pin one public drug-like set, cache locally with a checksum, never silently re-download. Candidates in order of preference: the GuacaMol/MOSES ChEMBL-derived training set (small, standard, pinned by URL+hash) → ZINC drug-like tranche → full ChEMBL dump (largest download, least attractive).
-- Record filter criteria and sampling seed in config.
-- **Predictor reference set.** DONE in Phase 0 — `data/reference/` holds the TDC `ADMET_Group` `train_val` molecules for exactly the four objective endpoints, plus a sha256 manifest. Remaining: fold the export into the Makefile and document provenance in the README.
+## Phase 2 — Data layer — DONE
+
+- **Starting population.** Decision: GuacaMol v1 training set (ChEMBL-derived, pre-filtered for drug-likeness by GuacaMol's own curation). Pinned by URL + MD5 (verified against the value published in the GuacaMol README). `scripts/build_starting_population.py` downloads it (cached under `data/raw/guacamol/`, skipped on re-run if the checksum already matches), draws 10,000 molecules without replacement with a fixed seed (0), canonicalizes and deduplicates with RDKit, and writes `data/processed/starting_population.csv` + `starting_population_manifest.json` (source URL/MD5, pool size, sampled count, dropped-invalid count, seed, filter criteria, output hash). Verified deterministic across re-runs (identical output SHA-256).
+- **Predictor reference set.** DONE in Phase 0 — `data/reference/` holds the TDC `ADMET_Group` `train_val` molecules for exactly the four objective endpoints, plus a sha256 manifest. Folded into the Makefile (`make data-reference`, isolated PyTDC env) and `make data-starting-population`; both run via `make data`. Provenance documented in `README.md`.
 
 ## Phase 3 — Objective module
 
@@ -125,8 +126,11 @@ Resolved in Phase 0:
 2. Normalization: **DrugBank approved percentile**, computed in-repo from `admet_ai/resources/data/drugbank_approved.csv` for the 5 objective components.
 4. Budget: **unchanged** (200 pop × 100 gens × 5 seeds × 5 configs).
 
-Still open, needed before Phase 2:
+Resolved in Phase 2:
 
-1. Starting library choice (recommend GuacaMol/MOSES ChEMBL subset for size and pinnability).
+1. Starting library choice: **GuacaMol v1 training set**, 10,000-molecule sample (seed 0). See "Phase 2 — Data layer" above.
+
+Still open, needed before Phase 6 / Phase 8 respectively:
+
 3. Independent scorer path (recommend in-repo LightGBM on hERG + solubility).
 5. Sign-off on the pre-declared implausibility battery thresholds.
