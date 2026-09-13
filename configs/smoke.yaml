@@ -10,6 +10,7 @@ results_dir: results
 objective:
   normalization: drugbank_percentile
   aggregation: weighted_geometric_mean
+  cache_path: data/processed/admet_cache.parquet
   components:
     - name: Solubility_AqSolDB
       source: admet-ai

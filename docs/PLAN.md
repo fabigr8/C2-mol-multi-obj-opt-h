@@ -60,12 +60,12 @@ Artifacts: `src/rhmoo/{config,run_log,runner}.py`, `configs/{smoke,main}.yaml`, 
 - **Starting population.** Decision: GuacaMol v1 training set (ChEMBL-derived, pre-filtered for drug-likeness by GuacaMol's own curation). Pinned by URL + MD5 (verified against the value published in the GuacaMol README). `scripts/build_starting_population.py` downloads it (cached under `data/raw/guacamol/`, skipped on re-run if the checksum already matches), draws 10,000 molecules without replacement with a fixed seed (0), canonicalizes and deduplicates with RDKit, and writes `data/processed/starting_population.csv` + `starting_population_manifest.json` (source URL/MD5, pool size, sampled count, dropped-invalid count, seed, filter criteria, output hash). Verified deterministic across re-runs (identical output SHA-256).
 - **Predictor reference set.** DONE in Phase 0 — `data/reference/` holds the TDC `ADMET_Group` `train_val` molecules for exactly the four objective endpoints, plus a sha256 manifest. Folded into the Makefile (`make data-reference`, isolated PyTDC env) and `make data-starting-population`; both run via `make data`. Provenance documented in `README.md`.
 
-## Phase 3 — Objective module
+## Phase 3 — Objective module — DONE
 
-- ADMET-AI wrapper with batched prediction and a persistent cache keyed by canonical SMILES (SQLite or parquet + in-memory dict). This is the main runtime cost.
-- Per-component normalization to [0,1] with declared direction; one transform, chosen in Phase 0, identical across all arms.
-- Weighted geometric mean aggregation; uniform default weights.
-- Unit tests: known inputs → known outputs (golden values), direction handling, zero-component behaviour.
+- **`src/rhmoo/predictors.py`**: `ADMETPredictor` wraps `ADMETModel(include_physchem=False, drugbank_path=None)` (Phase 0 config) plus RDKit QED. Realigns every prediction onto the requested SMILES list (canonicalizes, dedupes queries, logs invalid/dropped counts via `logging` rather than silently dropping — brief §8). `PredictionCache` is a canonical-SMILES-keyed, parquet-persisted cache (`objective.cache_path` in config) shared across calls, so GA duplicate re-evaluation is cheap.
+- **`src/rhmoo/normalization.py`**: `DrugBankPercentileNormalizer` — direction-aware percentile rank (mean-rank tie handling) against a reference distribution; `from_admet_ai_drugbank()` sources it from `admet_ai`'s shipped `drugbank_approved.csv`, which already carries all 5 objective columns (`QED, CYP3A4_Veith, hERG, Caco2_Wang, Solubility_AqSolDB`) precomputed for 2,845 approved drugs — same reference set decided in Phase 0, no extra fitting needed.
+- **`src/rhmoo/objective.py`**: `weighted_geometric_mean` (zero-component correctly zeros the result; validates weight/score domains), `normalize_components`, `aggregate` (dispatches on `config.aggregation`, currently only `weighted_geometric_mean`).
+- Unit tests (`tests/test_normalization.py`, `tests/test_objective.py`, both `smoke`-marked, pure numpy/pandas, no model calls): golden-value percentile ranks, direction handling, geometric-mean golden values and zero-component behaviour, mismatched-key/negative-score/unsupported-aggregation error paths, and an end-to-end normalize+aggregate check. `tests/test_predictors.py` (not smoke-marked — loads the real Chemprop checkpoint) covers canonicalization/QED, invalid-SMILES realignment, dedup, and cross-instance persistent-cache reuse. Full suite: 23 tests, ~8.5s.
 
 ## Phase 4 — SELFIES GA
 

@@ -38,6 +38,7 @@ class ObjectiveConfig:
     components: tuple[ObjectiveComponent, ...]
     normalization: str
     aggregation: str
+    cache_path: str
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,7 @@ def load_config(path: str | Path) -> ExperimentConfig:
         components=components,
         normalization=objective_raw["normalization"],
         aggregation=objective_raw["aggregation"],
+        cache_path=objective_raw["cache_path"],
     )
 
     ga = GAConfig(**raw["ga"])
