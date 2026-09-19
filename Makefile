@@ -1,4 +1,4 @@
-.PHONY: setup test smoke data data-reference data-starting-population reproduce figures results
+.PHONY: setup test smoke data data-reference data-starting-population train-independent-scorer reproduce figures results
 
 setup:
 	uv sync
@@ -23,6 +23,12 @@ data-starting-population:
 	uv run python scripts/build_starting_population.py
 
 data: data-reference data-starting-population
+
+# Independent scorer (brief SS4/SS6, Phase 6, H3): frozen LightGBM models under
+# models/independent_scorer/, committed to the repo and never retrained during
+# a run. Re-run only to deliberately refresh the frozen artifacts.
+train-independent-scorer:
+	uv run python scripts/train_independent_scorer.py
 
 # One-command reproduction (brief SS6). The arms x seeds optimization loop lands
 # in Phase 9; today this exercises config loading, output layout, and run

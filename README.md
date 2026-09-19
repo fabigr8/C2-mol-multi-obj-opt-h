@@ -45,6 +45,15 @@ in the main project environment. Per-file SHA-256 hashes are recorded in
 Both artifacts are cached locally and regenerated deterministically from their pinned
 sources; neither script silently re-downloads or re-samples different data on re-run.
 
+**Independent scorer** (`models/independent_scorer/`, `scripts/train_independent_scorer.py`):
+LightGBM models (RDKit descriptors + MACCS keys — deliberately distinct from ADMET-AI's
+Chemprop GNN and from the AD constraint's ECFP4) for hERG and Solubility_AqSolDB, trained
+and evaluated on the official TDC `ADMET_Group` `train_val`/`test` splits already cached
+under `data/raw/tdc/admet_group/`. Held-out performance (`models/independent_scorer/metadata.json`):
+hERG ROC-AUC 0.844, Solubility_AqSolDB MAE 0.745. Frozen artifacts are committed to the
+repo (`make train-independent-scorer` to deliberately regenerate); never retrained during
+an experiment run.
+
 ## Config
 
 Each experiment run is driven by a single YAML file (`configs/smoke.yaml`,
@@ -62,6 +71,7 @@ Each experiment run is driven by a single YAML file (`configs/smoke.yaml`,
 ## Status
 
 Phase 0 (environment spike), Phase 1 (scaffold), Phase 2 (data layer), Phase 3
-(objective module), Phase 4 (SELFIES genetic algorithm), and Phase 5 (constraint
-modules: applicability-domain and synthesizability soft penalties) are complete.
-See `docs/PLAN.md` for phase-by-phase status and remaining work.
+(objective module), Phase 4 (SELFIES genetic algorithm), Phase 5 (constraint
+modules), and Phase 6 (independent scorer: LightGBM on RDKit descriptors +
+MACCS keys for hERG and aqueous solubility, held-out ROC-AUC 0.844 / MAE 0.745)
+are complete. See `docs/PLAN.md` for phase-by-phase status and remaining work.

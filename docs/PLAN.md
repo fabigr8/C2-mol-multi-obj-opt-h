@@ -79,11 +79,13 @@ Artifacts: `src/rhmoo/{config,run_log,runner}.py`, `configs/{smoke,main}.yaml`, 
 - **`src/rhmoo/synthesizability.py`**: wraps RDKit's bundled `sascorer` contrib script (not a public rdkit API — path added at import time). `sa_penalty(score, threshold) = min(1, threshold/score)`: 1.0 at/below threshold, continuous decay above. The brief only mandates a soft penalty for arm B's AD constraint and leaves arm C's SA cutoff otherwise unspecified; for consistency (and because a hard filter would reintroduce the score cliff the AD penalty is explicitly designed to avoid) arm C's SA constraint is implemented as the same soft-penalty shape. Recorded here as a deliberate, justified deviation from a literal "SA score ≤ threshold" hard filter, per brief §3.1's "agent may adjust with justification recorded in the config."
 - Unit tests (`tests/test_applicability_domain.py`, `tests/test_synthesizability.py`, both smoke-marked): `bulk_max_tanimoto` against hand-computed 4-bit toy fingerprints (including the all-zero/all-zero edge case, defined as similarity 0, not 1 or NaN); both penalty functions equal 1.0 at/beyond their threshold and decay continuously past it; fingerprint equivalence for equivalent SMILES and all-zero rows for invalid SMILES; reference-index caching (a monkeypatched fingerprinting function that raises proves a cache hit never recomputes). Full suite: 49 tests, ~8.5s (smoke subset: 46 tests, ~1.4s).
 
-## Phase 6 — Independent scorer (H3 — highest priority)
+## Phase 6 — Independent scorer (H3 — highest priority) — DONE
 
-- Preferred: an ADMET-AI-independent public model for at least one endpoint. Time-boxed search; if nothing clean is available, fall back immediately.
-- Fallback (expected path): in-repo LightGBM on RDKit physchem descriptors + a *different* fingerprint, trained on the TDC train split for hERG and aqueous solubility. Report its own held-out test performance so the scorer's competence is documented rather than assumed.
-- Frozen model artifact committed/cached; never retrained during a run.
+- Went straight to the fallback path rather than a time-boxed search for a public independent model: identifying, vetting, and safely integrating an unfamiliar third-party pretrained model within an automated-agent workflow carries more risk (unverifiable provenance, possible license/version issues) than the brief's explicitly pre-approved fallback, which is cheap and sufficient.
+- **`scripts/train_independent_scorer.py`**: trains on the official TDC `ADMET_Group` splits already cached in Phase 0 (`data/raw/tdc/admet_group/{herg,solubility_aqsoldb}/{train_val,test}.csv`) — hERG as LightGBM binary classification (523 train / 132 test), Solubility_AqSolDB as LightGBM regression (7,985 train / 1,995 test after dropping 2 RDKit-unparseable test rows, logged not silently dropped). Features: RDKit's full `Descriptors.CalcMolDescriptors` (217 physchem descriptors) + MACCS keys (167 bits) — deliberately distinct from both ADMET-AI's Chemprop GNN and the AD constraint's ECFP4. Fixed hyperparameters (no tuning sweep — not warranted at this scale), fixed seed. Held-out test performance (documented, not assumed): **hERG ROC-AUC 0.844**, **Solubility_AqSolDB MAE 0.745** (log-solubility units).
+- **`src/rhmoo/independent_scorer.py`**: `featurize()` (same descriptor/MACCS pipeline, invalid SMILES → logged + all-NaN row, never silently dropped) and `IndependentScorer` which loads the frozen boosters from `models/independent_scorer/` (committed to the repo, `make train-independent-scorer` to regenerate deliberately) and scores SMILES batches, returning `hERG_independent` / `Solubility_AqSolDB_independent` columns for the Phase 7 metrics module to compare against the objective's own ADMET-AI scores.
+- `models/independent_scorer/metadata.json` records feature columns, library versions, hyperparameters, seed, held-out metrics, and training-data provenance.
+- Unit tests (`tests/test_independent_scorer.py`, smoke-marked — LightGBM inference on ~1KB text models is fast): featurization shape/determinism/invalid-SMILES handling, metadata content, and end-to-end scoring (valid SMILES in range, invalid SMILES → NaN, never dropped from the output). Full suite: 53 tests, ~8.2s (smoke subset: 50 tests, ~2.5s).
 
 ## Phase 7 — Metrics module
 
@@ -128,7 +130,10 @@ Resolved in Phase 2:
 
 1. Starting library choice: **GuacaMol v1 training set**, 10,000-molecule sample (seed 0). See "Phase 2 — Data layer" above.
 
-Still open, needed before Phase 6 / Phase 8 respectively:
+Resolved in Phase 6:
 
-3. Independent scorer path (recommend in-repo LightGBM on hERG + solubility).
+3. Independent scorer path: **in-repo LightGBM** (RDKit descriptors + MACCS keys) on hERG + Solubility_AqSolDB, per the brief's permitted-exception fallback. See "Phase 6 — Independent scorer" above.
+
+Still open, needed before Phase 8:
+
 5. Sign-off on the pre-declared implausibility battery thresholds.
