@@ -7,6 +7,8 @@ k_top: 100
 starting_population_path: data/processed/starting_population.csv # scripts/build_starting_population.py
 reference_set_path: data/reference/reference_union.csv
 results_dir: results
+# H3 baseline (brief SS4): use the whole starting population.
+starting_population_baseline_size: null
 
 objective:
   normalization: drugbank_percentile
@@ -50,7 +52,7 @@ applicability_domain:
   fingerprint_cache_path: data/processed/reference_fingerprints.npz
 
 synthesizability:
-  sa_score_threshold: 6.0 # TODO(phase 8): pending pre-registration sign-off
+  sa_score_threshold: 6.0
 
 arms:
   - name: D
@@ -71,7 +73,7 @@ arms:
     use_synth_constraint: true
 
 # Implausibility battery (brief SS4/SS8): fails if >= fail_threshold_count of the
-# thresholds below are violated. Placeholder values pending Phase 8 sign-off.
+# thresholds below are violated. Frozen at Phase 8 pre-registration sign-off.
 implausibility_battery:
   mw_max: 700
   clogp_max: 7

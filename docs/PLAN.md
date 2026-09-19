@@ -87,26 +87,36 @@ Artifacts: `src/rhmoo/{config,run_log,runner}.py`, `configs/{smoke,main}.yaml`, 
 - `models/independent_scorer/metadata.json` records feature columns, library versions, hyperparameters, seed, held-out metrics, and training-data provenance.
 - Unit tests (`tests/test_independent_scorer.py`, smoke-marked — LightGBM inference on ~1KB text models is fast): featurization shape/determinism/invalid-SMILES handling, metadata content, and end-to-end scoring (valid SMILES in range, invalid SMILES → NaN, never dropped from the output). Full suite: 53 tests, ~8.2s (smoke subset: 50 tests, ~2.5s).
 
-## Phase 7 — Metrics module
+## Phase 7 — Metrics module — DONE
 
-All of §4 of the brief, computed per arm × seed for top-k (k=100) and for control arm D:
-objective trajectory and final distribution; per-component breakdown; AD nearest-neighbour distances (vs reference set and vs starting population); **objective-vs-independent rank correlation and mean absolute disagreement, on starting population and on optimized top-k separately** (the difference is the headline); physchem panel; SA; PAINS/Brenk; implausibility rate as "fails ≥2 of the pre-declared battery".
+- **`src/rhmoo/metrics.py`**: implements all of brief SS4. `physchem_panel` (RDKit descriptors: MW, cLogP, TPSA, HBD/HBA, rotatable bonds, ring count, largest ring size, fraction sp3, formal charge); `longest_aliphatic_chain` is not an RDKit builtin — implemented as the standard double-BFS longest-path algorithm over the induced subgraph of non-ring carbons, which is provably a forest (any cycle is by definition a ring, so its atoms are `IsInRing`-flagged and excluded). `structural_alerts` wraps RDKit's `FilterCatalog` PAINS/BRENK catalogs. `sa_scores` batches `synthesizability.sa_score`. `implausibility_battery` applies the frozen config thresholds, treating an unparseable molecule as failing every check it can't be evaluated on (not silently passing). `select_top_k`, `objective_trajectory` (per-generation mean/max/min/std, ignoring logged-invalid rows), `component_breakdown`, `nearest_neighbor_similarity` (thin wrapper over Phase 5's `ReferenceFingerprintIndex`), `independent_divergence` (spearman rank correlation + mean absolute disagreement between an objective raw column and its independent-scorer counterpart, NaN-pair-dropping), and `divergence_headline` (starting-population vs optimized-top-k side by side — the project's headline number). No ADMET-AI dependency, so the whole module is smoke-fast.
+- Unit tests (`tests/test_metrics.py`, smoke-marked): hand-computed longest-aliphatic-chain cases (linear chain, all-ring, aromatic ring, ring+substituent, toluene), physchem/alerts/SA valid-vs-invalid-SMILES behaviour, implausibility-battery counting and the NaN-fails-every-check rule, top-k ordering, per-generation trajectory aggregation, component summary stats, nearest-neighbour similarity via a tiny reference index, and independent-divergence golden values (perfect agreement, NaN-dropping). Full suite: 87 tests.
 
-## Phase 8 — Pre-registration freeze
+## Phase 8 — Pre-registration freeze — DONE
 
-Before the first full run, commit the frozen `configs/main.yaml` containing the implausibility battery thresholds, AD θ values, SA cutoff, and budget. Any later change is a new experiment with an explicit log entry and reason.
+- Implausibility battery and SA threshold placeholders signed off as-is (user confirmed 2026-09-19): MW ≤ 700, cLogP ≤ 7, TPSA ≤ 200, rotatable bonds ≤ 15, SA ≤ 6.0, 0 PAINS alerts, 0 Brenk alerts, fails if ≥ 2 violated. `configs/main.yaml` and `configs/smoke.yaml` updated to drop the "pending sign-off" TODO markers. Any later change to these values, to the AD theta sweep, or to the budget is a new experiment and must be logged as one (brief SS8).
 
-## Phase 9 — Runner
+## Phase 9 — Runner — DONE
 
-Orchestrate arms × seeds × θ; shared prediction cache across runs; parallel over runs (process pool) rather than inside ADMET-AI, whichever the Phase 0 measurement favours; write `results/raw/*.parquet` + config copy + run log.
+- **`src/rhmoo/runner.py`**: orchestrates arms × seeds (× theta for arm B) end to end. `ObjectivePipeline` is the GA `fitness_fn`: ADMET-AI/QED raw values → DrugBank-percentile normalization → weighted geometric mean, multiplied by the AD soft penalty (arm B/C) and/or SA soft penalty (arm C) when configured; failed predictions score 0 rather than corrupting GA selection with NaN. Design decisions made where the brief/config schema left the exact procedure open (recorded in the module docstring):
+  - **Arm D (control)**: draws a `k_top`-sized random sample per seed (no GA — nothing to rank), metrics computed on the whole sample.
+  - **Arms A/B/C**: run the full GA per seed; the top `k_top` of the *final* population by fitness is the metrics set.
+  - **Arm C's AD theta**: fixed at the middle of `applicability_domain.theta_values` (arm B alone sweeps the full range for H4's trade-off curve; arm C only needs one setting alongside SA).
+  - **H3 "starting population" baseline**: computed once per experiment (not per arm/seed) since it doesn't depend on either; its sample size is a new config field, `starting_population_baseline_size` (`null` = use the whole population, as `configs/main.yaml` does; `configs/smoke.yaml` caps it at 15 to stay inside the smoke budget).
+  - Every run writes its full trajectory (or D's scored sample) to `results/<name>/raw/<arm_label>_seed<seed>.parquet` (brief SS3.2/SS8: every evaluated molecule is data — nothing is filtered before persisting). `results/<name>/tables/` gets `summary_per_seed.csv`, `summary_by_arm.csv` (mean ± sd across seeds, brief SS3.5), `topk_detail.csv` (one row per top-k molecule across every arm/seed, with every raw/normalized component, AD similarity to both reference sets, SA score, physchem panel, alerts, implausibility flags, and independent-scorer scores — the shared input for Phase 10's figures/report), and `starting_population_divergence.csv`.
+- **Compute-budget finding (this container, not the Phase 0 Mac)**: this devcontainer has 2 vCPUs / 7.8 GiB RAM. Measured ADMET-AI throughput here (best config, no DrugBank/physchem) is **~56 mol/s**, not the ~390 mol/s measured on the Phase 0 14-core Mac (~7× slower, tracking the core-count ratio). The full pre-registered budget (D + A + B×3θ + C, 5 seeds, pop 200 × gen 100 ≈ 455k raw evaluations before cache dedup) would take on the order of 2–3 hours of sequential wall time here; with only 2 cores, process-pool parallelism across runs would not meaningfully help. **Decision (user confirmed 2026-09-19): finish Phases 7–10 in code and validate via the smoke config; do not execute the full `configs/main.yaml` run in this container.** Running the full experiment is deferred to whenever stronger/more-parallel hardware is available; the code path is otherwise complete and `make reproduce` will run it unchanged.
+- Unit test: `tests/test_runner.py` runs the real `configs/smoke.yaml` end to end (real ADMET-AI/LightGBM/RDKit calls, no mocks) and asserts the expected artifacts exist. Full local run: ~16–27s (cache-dependent), inside the 60s smoke budget.
 
-## Phase 10 — Figures and RESULTS.md
+## Phase 10 — Figures and RESULTS.md — DONE
 
-Figures 1–5 per the brief, sized for blog width; fig1 = top-20 by objective score, unmodified, annotated with composite and independent scores. `RESULTS.md` generated purely from tables/figures — numbers only, no interpretation.
+- **`src/rhmoo/figures.py`**: renders all five brief SS5 figures from a results directory's `tables/`/`raw/` artifacts — `fig1_structure_grid` (top-n by *unmodified* objective score, arm A vs the same representative arm-B theta Phase 9 fixed for arm C, RDKit `MolsToGridImage` annotated with objective + independent-hERG score), `fig2_score_vs_nn_distance` (objective score vs `1 - AD similarity to the predictor reference set`, colored by arm), `fig3_objective_vs_independent` (H3 headline: starting-population vs optimized-top-k mean absolute disagreement, grouped bar per property), `fig4_ad_tradeoff` (arm B's achieved objective score ± sd vs θ, twin-axis implausibility rate — H4), `fig5_trajectories` (per-generation mean fitness per non-control arm, min–max shaded across seeds). `generate_all_figures(results_dir)` renders all five from the standard artifact layout; `scripts/generate_figures.py` is the CLI entry point wired to `make figures`.
+- **`src/rhmoo/report.py`**: `generate_results_md` writes `RESULTS.md` as tables (hand-rolled Markdown — no `tabulate` dependency) and figure embeds only, per brief SS8 ("the agent must not write conclusions, narrative, or claims into it"): per-arm summary (mean ± sd across seeds), H3 divergence for the starting population and for the optimized top-k, then each figure section (only if the file exists). `scripts/generate_results.py` is the CLI entry point wired to `make results`. A unit test asserts every non-blank line is a heading, a table row, or an image embed — i.e. no prose can slip in undetected.
+- Unit tests (`tests/test_figures.py`, `tests/test_report.py`, smoke-marked, synthetic DataFrames — no ADMET-AI/GA dependency): representative-arm-B selection, each figure function creates a non-empty file (including the "only one seed, no shaded band" and "arm without a `generation` column is skipped" edge cases for fig5), `generate_all_figures` produces exactly five files, and RESULTS.md's figure-embed and prose-free-output behaviour. Also manually verified end-to-end against a real (smoke-scale) `configs/smoke.yaml` run: all five figures render sensibly and `RESULTS.md` is well-formed. Full suite: **98 tests, ~20s** (all smoke-marked).
+- `make reproduce` now chains the full run with `make figures` and `make results`, matching brief SS6's "one-command reproduction... regenerates every table and figure from scratch." Not executed for the full `configs/main.yaml` budget in this container — see Phase 9's compute-budget note.
 
 ## Phase 11 — Verification
 
-`make reproduce` from a clean venv; re-run one arm with the same seed and assert identical top-k; unit tests green; smoke config under 60s; check outputs for stray interpretive prose and for any language implying therapeutic relevance.
+`make reproduce` from a clean venv; re-run one arm with the same seed and assert identical top-k; unit tests green; smoke config under 60s; check outputs for stray interpretive prose and for any language implying therapeutic relevance. **Not yet done** — blocked on running the full `configs/main.yaml` experiment (see Phase 9's compute-budget note), which needs stronger/more-parallel hardware than this devcontainer.
 
 ## Risks
 
@@ -134,6 +144,10 @@ Resolved in Phase 6:
 
 3. Independent scorer path: **in-repo LightGBM** (RDKit descriptors + MACCS keys) on hERG + Solubility_AqSolDB, per the brief's permitted-exception fallback. See "Phase 6 — Independent scorer" above.
 
-Still open, needed before Phase 8:
+Resolved in Phase 8 (user confirmed 2026-09-19):
 
-5. Sign-off on the pre-declared implausibility battery thresholds.
+5. Implausibility battery + SA threshold sign-off: **frozen as the placeholder values** (MW ≤ 700, cLogP ≤ 7, TPSA ≤ 200, rotatable bonds ≤ 15, SA ≤ 6.0, 0 PAINS, 0 Brenk, fails if ≥ 2 violated). See "Phase 8 — Pre-registration freeze" above.
+
+Resolved in Phase 9 (user confirmed 2026-09-19):
+
+6. Compute budget vs. this container's hardware (2 vCPU/7.8GiB, ~56 mol/s measured vs. the Phase 0 Mac's ~390 mol/s): **finish Phases 7–10 in code, validate via the smoke config, do not execute the full `configs/main.yaml` run here.** The full experiment run and Phase 11 verification are deferred to stronger/more-parallel hardware. See "Phase 9 — Runner" above.

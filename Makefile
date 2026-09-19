@@ -30,14 +30,15 @@ data: data-reference data-starting-population
 train-independent-scorer:
 	uv run python scripts/train_independent_scorer.py
 
-# One-command reproduction (brief SS6). The arms x seeds optimization loop lands
-# in Phase 9; today this exercises config loading, output layout, and run
-# logging end to end.
+# One-command reproduction (brief SS6): all arms x seeds x theta, then every
+# table and figure regenerated from scratch.
 reproduce:
 	uv run python -m rhmoo.runner --config configs/main.yaml
+	$(MAKE) figures
+	$(MAKE) results
 
 figures:
-	@echo "figures: not implemented yet (PLAN Phase 10)"
+	uv run python scripts/generate_figures.py --results-dir results/main
 
 results:
-	@echo "RESULTS.md generation: not implemented yet (PLAN Phase 10)"
+	uv run python scripts/generate_results.py --results-dir results/main

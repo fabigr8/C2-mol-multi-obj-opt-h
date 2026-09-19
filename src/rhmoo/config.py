@@ -85,6 +85,9 @@ class ExperimentConfig:
     starting_population_path: str
     reference_set_path: str
     results_dir: str
+    # H3 starting-population divergence baseline (brief SS4) sample size; None
+    # means use the whole starting population.
+    starting_population_baseline_size: int | None
     objective: ObjectiveConfig
     ga: GAConfig
     applicability_domain: ApplicabilityDomainConfig
@@ -129,6 +132,7 @@ def load_config(path: str | Path) -> ExperimentConfig:
         starting_population_path=raw["starting_population_path"],
         reference_set_path=raw["reference_set_path"],
         results_dir=raw["results_dir"],
+        starting_population_baseline_size=raw.get("starting_population_baseline_size"),
         objective=objective,
         ga=ga,
         applicability_domain=applicability_domain,
