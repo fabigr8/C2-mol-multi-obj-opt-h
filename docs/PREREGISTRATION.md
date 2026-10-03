@@ -146,7 +146,58 @@ Declared in `configs/*.yaml` under `decoupling:`.
   scorer"). Declared sensitivity sweep over margins 0.05 / 0.10 / 0.15.
 - "Did not decouple within budget" is a legitimate recorded outcome.
 
-## 3. Independent-scorer competence gate (brief SS4.2)
+## 3. Reported top-k and search configuration
+
+Both fixed before the first full run, after a reduced-scale rehearsal showed the
+original configuration could not support the brief SS4 metrics.
+
+### The reported top-k spans the whole run
+
+`top_k(arm, seed)` = the `k_top` highest-**fitness** distinct molecules the run
+evaluated, keyed on canonical SMILES, ties broken by SMILES so the selection
+does not depend on evaluation order.
+
+Brief SS4 asks for "the top-k molecules per arm per seed" and does not specify
+the final population. Drawing from the final population is fragile: an elitist
+GA converges, so a 200-slot final population routinely holds only a handful of
+distinct structures, and the highest-scoring molecules the optimizer found --
+which is exactly where the exploits are -- may have been discovered and then
+crowded out generations earlier.
+
+Keying on the canonical SMILES matters independently: SELFIES decoding emits
+whichever spelling the token sequence produces, so one molecule otherwise
+occupies several top-k slots and inflates every `n` and rank correlation.
+
+Population collapse is still measured and reported, as
+`final_population_unique_fraction`. It is a real property of the search, so it
+is recorded rather than allowed to silently thin every downstream statistic.
+
+### Mutation rate
+
+`ga.mutation_rate` is **1.0**: every offspring receives exactly one token
+mutation.
+
+Crossover is off by default (brief SS3.2), so mutation is the only variation
+operator and any rate below 1.0 makes that fraction of offspring exact clones of
+their parent. At the original 0.1, measured on arm A at rehearsal scale
+(population 40, 15 generations):
+
+| `mutation_rate` | offspring that were clones | distinct molecules evaluated (of 580) | distinct molecules in the reported top-20 | objective score (mean) |
+|---|---|---|---|---|
+| 0.1 | 84% | 86 | 1.5 | 0.8276 |
+| 0.5 | 46% | 247 | 4.0 | 0.8510 |
+| **1.0** | **0%** | **457** | **16.5** | **0.8118** |
+
+The achieved objective score is unchanged within seed noise, so this is not a
+change that makes the optimizer look better or worse at its task -- it stops
+roughly 90% of the compute budget being spent re-evaluating duplicates, and it
+makes the brief SS4 metrics computable on more than one or two molecules.
+
+A genetic algorithm that clones 90% of its offspring is not a naive optimizer,
+it is a non-functioning one. The experiment's subject is naive *objective
+design*, so the optimizer itself has to actually search.
+
+## 4. Independent-scorer competence gate (brief SS4.2)
 
 Declared in `scripts/train_independent_scorer.py` before the variants were
 trained: hERG ROC-AUC >= 0.65, Solubility_AqSolDB MAE <= 1.2. Not a filter --
@@ -162,8 +213,10 @@ Measured, all six models pass:
 | `data_control_half` | 0.8084 | 0.7794 | 266 / 3993 | no |
 | `data_control_test` | 0.8260 | 0.8811 | 132 / 1995 | **yes** |
 
-## 4. Unchanged from Phase 8
+## 5. Unchanged from Phase 8
 
 AD theta sweep (0.3 / 0.4 / 0.5), SA penalty threshold (6.0), and the budget
-(population 200, 100 generations, 5 seeds). Any later change to these, or to
+(population 200, 100 generations, 5 seeds). The budget is unchanged: the
+mutation-rate fix increases the number of *distinct* molecules evaluated within
+the same number of evaluations rather than requiring more of them. Any later change to these, or to
 anything above, is a new experiment and must be logged as one (brief SS9).

@@ -100,10 +100,26 @@ of approved drugs, against brief SS4.5's 5% ceiling. The thresholds were
 recalibrated; see `docs/PREREGISTRATION.md`. The old values are retained in
 `docs/PLAN.md` because the size of the delta is the justification.
 
-## 10. Top-k is deduplicated on canonical SMILES
+## 10. The reported top-k spans the run, not the final population
 
-Not specified by the brief. A converged elitist GA repeats the same molecule
-across population slots, and SELFIES decoding emits varying SMILES spellings of
-it, so an undeduplicated top-k inflates every `n` and makes rank correlations
-degenerate. Both the ranked slot count and the unique-molecule count are
-recorded; see `docs/LIMITATIONS.md` section 6.
+Not specified by the brief, which asks only for "the top-k molecules per arm per
+seed" (SS4). The top-k is drawn from every distinct molecule the run evaluated,
+keyed on canonical SMILES.
+
+Drawing from the final population is fragile: an elitist GA converges, so the
+final population can hold very few distinct structures, and SELFIES decoding
+emits several spellings of the same molecule. Together those inflate every `n`
+and make rank correlations degenerate. Population collapse is still reported, as
+`final_population_unique_fraction`.
+
+## 11. Mutation rate raised from 0.1 to 1.0
+
+Not specified by the brief, which fixes the operator set but not the rate
+(SS3.2). Crossover is off by default, so mutation is the only variation operator
+and a rate of 0.1 made 90% of offspring exact clones of their parent: 86 of 580
+evaluations were distinct molecules, and the reported top-20 held 1-2 of them.
+
+Measured at 1.0 the achieved objective score is unchanged within seed noise
+(0.8118 vs 0.8276), so this does not flatter or penalise the optimizer -- it
+stops ~90% of the compute budget being spent re-evaluating duplicates. The full
+A/B is in `docs/PREREGISTRATION.md`.

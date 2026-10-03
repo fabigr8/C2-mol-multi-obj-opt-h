@@ -50,7 +50,6 @@ from rhmoo.metrics import (
     murcko_scaffold,
     sa_scores,
     scaffold_clusters,
-    select_top_k,
 )
 from rhmoo.normalization import DrugBankPercentileNormalizer
 from rhmoo.objective import aggregate, normalize_components
@@ -132,6 +131,39 @@ def _sample_population(pool: list[str], n: int, seed: int) -> list[str]:
     return [pool[i] for i in idx]
 
 
+def best_unique_molecules(trajectory: pd.DataFrame, k: int) -> tuple[list[str], int]:
+    """The k highest-fitness distinct molecules the run evaluated.
+
+    brief SS4 asks for "the top-k molecules per arm per seed"; it does not say
+    the final population, and drawing from the final population is fragile.
+    An elitist GA converges, so a final population of 200 slots routinely holds
+    only a handful of distinct structures -- and the highest-scoring molecules
+    the optimizer found, which is exactly where the exploits are, may have been
+    discovered and then crowded out generations earlier.
+
+    Keyed on canonical SMILES, because SELFIES decoding emits whichever
+    spelling the token sequence produces and the same molecule otherwise
+    appears several times. Returns the selection and the total number of
+    distinct molecules evaluated.
+
+    Ties are broken by SMILES (groupby sorts by key, then a stable sort by
+    fitness preserves that order), so the selection does not depend on
+    evaluation order.
+    """
+    valid = trajectory[trajectory["smiles"].notna() & trajectory["fitness"].notna()]
+    if valid.empty:
+        return [], 0
+    frame = pd.DataFrame(
+        {
+            "smiles": [canonicalize(s) or s for s in valid["smiles"]],
+            "fitness": valid["fitness"].to_numpy(dtype=float),
+        }
+    )
+    best = frame.groupby("smiles", as_index=False)["fitness"].max()
+    best = best.sort_values("fitness", ascending=False, kind="stable")
+    return best["smiles"].head(k).tolist(), len(best)
+
+
 def sweeps_theta(arm: ArmConfig) -> bool:
     """An AD-constrained arm without the synthesizability constraint is the one
     whose theta sweep produces H4's trade-off curve (brief SS3.3).
@@ -191,7 +223,7 @@ def _run_one(
 ) -> dict:
     """Runs one (arm, seed[, theta]) cell end to end."""
     elites = None
-    n_ranked = n_unique = None
+    n_unique_evaluated = final_unique = None
     curve_rows: list[pd.DataFrame] = []
     decoupling_rows: list[dict] = []
 
@@ -222,34 +254,15 @@ def _run_one(
         initial_population = _sample_population(starting_pool, config.ga.population_size, seed)
         ga = SelfiesGA(config.ga, pipeline, seed=seed)
         final_population, final_fitness, trajectory = ga.run(initial_population)
-        ranked, _ = select_top_k(final_population, final_fitness, config.k_top)
-        # Deduplicate the top-k. An elitist GA that has converged carries the
-        # same molecule in many population slots, so the ranked top-k can
-        # contain a handful of distinct structures repeated. Reporting those
-        # duplicates would inflate every `n`, and would make the rank
-        # correlations degenerate (a top-k of 3 distinct values yields a
-        # Spearman of exactly +/-1 regardless of the data).
-        #
-        # The size of the collapse is itself a result -- it measures how far
-        # population diversity has collapsed -- so both counts are recorded
-        # rather than the deduplication being silent.
-        # Deduplicate on the *canonical* SMILES, not the raw string. SELFIES
-        # decoding emits whichever spelling the token sequence produces, so the
-        # same molecule routinely appears as both an aromatic and a Kekule
-        # form; a raw-string dedup silently keeps both and double-counts it in
-        # every n, rank correlation and scaffold cluster.
-        top_smiles = []
-        seen = set()
-        for smiles in ranked:
-            key = canonicalize(smiles) or smiles
-            if key in seen:
-                continue
-            seen.add(key)
-            top_smiles.append(key)
-        n_ranked, n_unique = len(ranked), len(top_smiles)
-        # Recompute the top-k rows explicitly (cheap: hits the persistent
-        # predictor cache) rather than filtering the trajectory, since a
-        # SMILES can recur across generations and top-k must be unambiguous.
+        top_smiles, n_unique_evaluated = best_unique_molecules(trajectory, config.k_top)
+        # Population collapse is a real property of the search, so it is
+        # measured and reported rather than being allowed to silently thin
+        # every downstream statistic.
+        final_unique = len({canonicalize(s) or s for s in final_population})
+        # Re-score the selection explicitly (cheap: hits the persistent
+        # predictor cache) rather than slicing the trajectory, so the
+        # reported rows are unambiguous for a molecule seen in several
+        # generations.
         detail = score_molecule_set(
             top_smiles, pipeline, scorers, predictor_reference_index, starting_population_index
         )
@@ -303,10 +316,15 @@ def _run_one(
         "n_seeds": 1,
         "n_molecules_evaluated": len(trajectory),
         "n_molecules_reported": len(detail),
-        "topk_ranked_slots": n_ranked,
-        "topk_unique_molecules": n_unique,
-        "topk_duplicate_fraction": (
-            None if not n_ranked else 1.0 - n_unique / n_ranked
+        "n_unique_molecules_evaluated": n_unique_evaluated,
+        "topk_unique_molecules": None if n_unique_evaluated is None else len(detail),
+        # Convergence diagnostic (brief SS9: report it, do not hide it). A
+        # low fraction means the final population collapsed onto a few
+        # structures -- informative about the search, and no longer able to
+        # thin the reported top-k now that it is drawn from the whole run.
+        "final_population_unique_molecules": final_unique,
+        "final_population_unique_fraction": (
+            None if final_unique is None else final_unique / config.ga.population_size
         ),
         "objective_score_mean": detail["objective_score"].mean(),
         "objective_score_std": detail["objective_score"].std(),

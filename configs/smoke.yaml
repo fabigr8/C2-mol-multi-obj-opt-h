@@ -46,7 +46,15 @@ ga:
   tournament_k: 3
   crossover_enabled: false
   crossover_rate: 0.0
-  mutation_rate: 0.1
+  # Mutation is the ONLY variation operator while crossover is off, so a
+  # rate below 1.0 means that fraction of offspring are exact clones of
+  # their parent. At the previous 0.1, 90% of every generation was a
+  # clone: the search evaluated 86 distinct molecules out of 580, the
+  # population collapsed to ~3 structures by generation 5, and the
+  # reported top-20 held 1-2 distinct molecules. Measured at 1.0 the
+  # achieved objective score is unchanged (0.81 vs 0.83) and 457 of 580
+  # evaluations are distinct. See docs/PREREGISTRATION.md.
+  mutation_rate: 1.0
 
 applicability_domain:
   theta_values: [0.3, 0.4, 0.5]

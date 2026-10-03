@@ -98,15 +98,31 @@ the approved-drug tail to hold the 5% ceiling, making the battery looser overall
 **The reported implausibility rate is therefore a lower bound on implausibility,
 not a complete account of it.**
 
-## 6. Top-k deduplication and population collapse
+## 6. Population collapse and what the top-k represents
 
-An elitist GA that has converged carries the same molecule in many population
-slots, and SELFIES decoding emits whichever SMILES spelling the token sequence
-produces -- so one molecule can appear under several spellings. The reported
-top-k is deduplicated on canonical SMILES, and `topk_duplicate_fraction` records
-how much collapsed. A high value means the reported `n` is small, and rank
-correlations computed on a handful of distinct molecules are correspondingly
-unstable.
+The reported top-k is the `k_top` highest-fitness **distinct** molecules the run
+evaluated, keyed on canonical SMILES, not the final population (see
+`docs/PREREGISTRATION.md`). Two consequences for reading the numbers:
+
+- The top-k is a "best found" set, not a snapshot of what the optimizer
+  converged on. Molecules in it may have been discovered early and then lost
+  from the population.
+- Convergence is reported separately as `final_population_unique_fraction`. A
+  low value means the population collapsed onto a few structures. That is a real
+  property of an elitist search and is informative, but it no longer silently
+  thins the reported statistics.
+
+Keying on canonical SMILES is load-bearing: SELFIES decoding emits whichever
+spelling the token sequence produces, so the same molecule can appear as both an
+aromatic and a Kekule form. Without canonicalization it occupies several top-k
+slots and inflates every `n` and rank correlation.
+
+Scaffold diversity is a separate matter from molecule count. At reduced
+rehearsal scale the top-k shared a single Murcko scaffold even with a healthy
+number of distinct molecules, so a small `n_scaffold_clusters` should be read as
+a finding about what the search converged on rather than as a defect -- but with
+the caveat that at small cluster counts the brief SS5.1 "N recurring motifs"
+claim rests on very few groups.
 
 ## 7. Scope
 

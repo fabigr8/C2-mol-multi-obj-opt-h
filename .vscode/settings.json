@@ -2,5 +2,9 @@
     "chat.tools.terminal.autoApprove": {
         "uv": true,
         "time": true
-    }
+    },
+    "attribution": {
+        "commit": "",
+        "pr": ""
+  }
 }
