@@ -29,3 +29,28 @@ def test_run_log_appends(tmp_path):
 
     lines = log_path.read_text().strip().splitlines()
     assert len(lines) == 2
+
+
+def test_run_log_records_arbitrary_provenance_keys(tmp_path):
+    """Run provenance is write-once: a finished run cannot be re-interrogated
+    for something it never wrote down. brief SS3.3 in particular requires
+    recording whether the ensemble-variance check was available, and that key
+    used to be silently dropped.
+    """
+    import json
+
+    from rhmoo.run_log import run_log
+
+    path = tmp_path / "run_log.jsonl"
+    with run_log(path, "deadbeef", "demo") as state:
+        state["molecules_evaluated"] = 7
+        state["ensemble_variance"] = "available"
+        state["something_future"] = {"nested": 1}
+
+    record = json.loads(path.read_text().strip())
+    assert record["molecules_evaluated"] == 7
+    assert record["ensemble_variance"] == "available"
+    assert record["something_future"] == {"nested": 1}
+    # The standard fields survive alongside the extras.
+    for key in ("run_name", "config_hash", "git_sha", "started_at", "finished_at", "wall_time_seconds"):
+        assert key in record

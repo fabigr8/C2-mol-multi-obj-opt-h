@@ -553,9 +553,16 @@ def run_experiment(config_path: str | Path, results_root: str | Path | None = No
             shutil.copy(frozen_table, tables_dir / "battery_calibration.csv")
 
         state["molecules_evaluated"] = total_evaluated
-        state["ensemble_variance"] = (
-            "available" if predictor.ensemble_variance_available else "unavailable"
-        )
+        # brief SS3.3 asks for a record of whether per-member predictions were
+        # available. Tri-state on purpose: the probe only runs when the model is
+        # actually loaded, so a run served entirely from cache has not checked
+        # anything, and reporting that as "unavailable" would be a false
+        # provenance claim rather than a missing one.
+        state["ensemble_variance"] = {
+            True: "available",
+            False: "unavailable",
+            None: "not_probed_all_predictions_cached",
+        }[predictor.ensemble_variance_available]
 
     return out_dir
 

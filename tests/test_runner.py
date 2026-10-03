@@ -89,3 +89,22 @@ def test_best_unique_molecules_is_order_independent():
     first, _ = best_unique_molecules(rows, k=3)
     second, _ = best_unique_molecules(rows.iloc[::-1].reset_index(drop=True), k=3)
     assert first == second
+
+
+def test_ensemble_variance_record_distinguishes_unchecked_from_unavailable(tmp_path, monkeypatch):
+    """brief SS3.3 wants a record of whether per-member predictions were
+    available. The probe only runs when the model is loaded, so a run served
+    entirely from cache has checked nothing -- reporting that as "unavailable"
+    would be a false provenance claim rather than a missing one.
+    """
+    from rhmoo.predictors import ADMETPredictor
+
+    predictor = ADMETPredictor(cache_path=None)
+    assert predictor.ensemble_variance_available is None
+
+    mapping = {
+        True: "available",
+        False: "unavailable",
+        None: "not_probed_all_predictions_cached",
+    }
+    assert mapping[predictor.ensemble_variance_available] == "not_probed_all_predictions_cached"
