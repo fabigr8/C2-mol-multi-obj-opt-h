@@ -1,4 +1,5 @@
 {
+  "variant": "data_control_half",
   "feature_columns": [
     "MaxAbsEStateIndex",
     "MaxEStateIndex",
@@ -396,24 +397,44 @@
     "num_boost_round": 300
   },
   "seed": 0,
+  "half_split": {
+    "half": "B",
+    "seed": 0,
+    "rule": "sha256(f'{seed}:{canonical_smiles}').digest()[0] % 2 -> 0=A, 1=B"
+  },
+  "disjoint_from_admet_ai_training_data": false,
   "held_out_metrics": {
     "hERG": {
-      "n_train": 523,
-      "n_test": 132,
-      "held_out_score": 0.8437407952871869,
+      "n_train": 266,
+      "n_eval": 132,
+      "train_split": "train_val (half B)",
+      "eval_split": "test",
+      "metric": "roc_auc",
+      "held_out_score": 0.8083946980854196,
       "higher_is_better": true,
-      "metric": "roc_auc"
+      "competence_gate": {
+        "metric": "roc_auc",
+        "min": 0.65
+      },
+      "passes_competence_gate": true
     },
     "Solubility_AqSolDB": {
-      "n_train": 7985,
-      "n_test": 1995,
-      "held_out_score": 0.7445354304734741,
+      "n_train": 3993,
+      "n_eval": 1995,
+      "train_split": "train_val (half B)",
+      "eval_split": "test",
+      "metric": "mae",
+      "held_out_score": 0.7794209079433162,
       "higher_is_better": false,
-      "metric": "mae"
+      "competence_gate": {
+        "metric": "mae",
+        "max": 1.2
+      },
+      "passes_competence_gate": true
     }
   },
   "training_data": {
-    "hERG": "data/raw/tdc/admet_group/herg/{train_val,test}.csv (TDC ADMET_Group official split)",
-    "Solubility_AqSolDB": "data/raw/tdc/admet_group/solubility_aqsoldb/{train_val,test}.csv (TDC ADMET_Group official split)"
+    "hERG": "data/raw/tdc/admet_group/herg/train_val.csv (half B) (TDC ADMET_Group official split); evaluated on test.csv",
+    "Solubility_AqSolDB": "data/raw/tdc/admet_group/solubility_aqsoldb/train_val.csv (half B) (TDC ADMET_Group official split); evaluated on test.csv"
   }
 }

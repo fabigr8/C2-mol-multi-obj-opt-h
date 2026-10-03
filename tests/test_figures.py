@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from conftest import HEADLINE_VARIANT, make_detail, make_divergence_long, make_summary_by_arm
 from rhmoo.figures import (
     _representative_b_label,
     fig1_structure_grid,
@@ -8,107 +9,108 @@ from rhmoo.figures import (
     fig3_objective_vs_independent,
     fig4_ad_tradeoff,
     fig5_trajectories,
+    fig6_decoupling,
+    fig7_exploit_clusters,
     generate_all_figures,
+    optimized,
 )
 
 pytestmark = pytest.mark.smoke
 
 
-def _detail_df() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "arm": ["A", "A", "B_theta0.30", "B_theta0.40", "B_theta0.50", "D"],
-            "smiles": ["CCO", "c1ccccc1", "CCN", "CC(=O)O", "CCCC", "CNC"],
-            "objective_score": [0.9, 0.5, 0.8, 0.7, 0.6, 0.3],
-            "ad_similarity_vs_reference": [0.9, 0.2, 0.5, 0.4, 0.3, 0.6],
-            "hERG": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            "hERG_independent": [0.15, 0.25, 0.35, 0.45, 0.55, 0.65],
-            "Solubility_AqSolDB": [-2.0, -3.0, -4.0, -1.0, -2.5, -3.5],
-            "Solubility_AqSolDB_independent": [-2.1, -2.9, -3.9, -1.1, -2.4, -3.6],
-        }
-    )
+def _nonempty(path):
+    assert path.exists()
+    assert path.stat().st_size > 0
 
 
-def test_representative_b_label_picks_middle_theta():
-    detail = _detail_df()
+def test_representative_b_label_picks_the_middle_theta():
+    detail = pd.DataFrame({"arm": ["A", "B_theta0.30", "B_theta0.40", "B_theta0.50", "D"]})
     assert _representative_b_label(detail) == "B_theta0.40"
+    assert _representative_b_label(pd.DataFrame({"arm": ["A", "D"]})) is None
 
 
-def test_representative_b_label_none_when_no_b_arm():
-    detail = pd.DataFrame({"arm": ["A", "D"]})
-    assert _representative_b_label(detail) is None
+def test_optimized_excludes_the_reference_arm():
+    """The H3 headline is computed over optimized molecules only. An
+    `arm != "D"` filter silently began to include arm R's 2,845 approved drugs
+    once that arm existed, with no error and no visible symptom.
+    """
+    detail = make_detail()
+    assert set(optimized(detail)["arm"]) == {"A", "B_theta0.40"}
+    assert "R" not in set(optimized(detail)["arm"])
 
 
-def test_fig1_structure_grid_creates_file(tmp_path):
-    out = fig1_structure_grid(_detail_df(), tmp_path / "fig1.png", n=2)
-    assert out.exists()
-    assert out.stat().st_size > 0
-
-
-def test_fig2_score_vs_nn_distance_creates_file(tmp_path):
-    out = fig2_score_vs_nn_distance(_detail_df(), tmp_path / "fig2.png")
-    assert out.exists()
-    assert out.stat().st_size > 0
-
-
-def test_fig3_objective_vs_independent_creates_file(tmp_path):
-    starting_divergence = pd.DataFrame(
-        {"property": ["hERG", "Solubility_AqSolDB"], "n": [10, 10], "spearman_r": [0.8, 0.7], "mean_abs_disagreement": [0.1, 0.2]}
+def test_fig1_annotates_score_independent_score_and_arm_r_percentile(tmp_path):
+    out = fig1_structure_grid(
+        make_detail(), tmp_path / "fig1.png", n=6, headline_variant=HEADLINE_VARIANT
     )
-    out = fig3_objective_vs_independent(_detail_df(), starting_divergence, tmp_path / "fig3.png")
-    assert out.exists()
-    assert out.stat().st_size > 0
+    _nonempty(out)
 
 
-def test_fig4_ad_tradeoff_creates_file(tmp_path):
-    summary_by_arm = pd.DataFrame(
-        {
-            "arm": ["B_theta0.30", "B_theta0.40", "B_theta0.50"],
-            "theta": [0.3, 0.4, 0.5],
-            "objective_score_mean_mean": [0.6, 0.65, 0.7],
-            "objective_score_mean_std": [0.01, 0.02, 0.03],
-            "implausibility_rate_mean": [0.2, 0.1, 0.05],
-        }
+def test_fig1_handles_an_empty_selection(tmp_path):
+    empty = make_detail().iloc[0:0]
+    _nonempty(fig1_structure_grid(empty, tmp_path / "fig1.png"))
+
+
+def test_fig2_creates_file(tmp_path):
+    _nonempty(fig2_score_vs_nn_distance(make_detail(), tmp_path / "fig2.png"))
+
+
+def test_fig3_renders_three_populations_per_variant(tmp_path):
+    # The canonical filename matters: the SVG companion is written only for
+    # the matplotlib-rendered figures, keyed on the figure's own stem.
+    out = fig3_objective_vs_independent(
+        make_divergence_long(), tmp_path / "fig3_objective_vs_independent.png"
     )
-    out = fig4_ad_tradeoff(summary_by_arm, tmp_path / "fig4.png")
-    assert out.exists()
-    assert out.stat().st_size > 0
+    _nonempty(out)
+    # Vector companion for blog-width legibility (brief SS5 allows png|svg).
+    assert out.with_suffix(".svg").exists()
 
 
-def test_fig5_trajectories_creates_file_and_ignores_arm_without_generation(tmp_path):
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    pd.DataFrame({"generation": [0, 0, 1, 1], "fitness": [0.1, 0.2, 0.3, 0.4]}).to_parquet(raw_dir / "A_seed0.parquet")
-    pd.DataFrame({"generation": [0, 0, 1, 1], "fitness": [0.15, 0.25, 0.35, 0.45]}).to_parquet(raw_dir / "A_seed1.parquet")
-    pd.DataFrame({"objective_score": [0.1, 0.2]}).to_parquet(raw_dir / "D_seed0.parquet")
-
-    out = fig5_trajectories(raw_dir, tmp_path / "fig5.png")
-    assert out.exists()
-    assert out.stat().st_size > 0
+def test_fig4_creates_file(tmp_path):
+    _nonempty(fig4_ad_tradeoff(make_summary_by_arm(), tmp_path / "fig4.png"))
 
 
-def test_generate_all_figures_creates_five_files(tmp_path):
-    tables_dir = tmp_path / "tables"
-    tables_dir.mkdir()
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
+def test_fig5_skips_arms_without_a_multi_generation_trajectory(tmp_path, results_dir):
+    _nonempty(fig5_trajectories(results_dir / "raw", tmp_path / "fig5.png"))
 
-    _detail_df().to_csv(tables_dir / "topk_detail.csv", index=False)
-    pd.DataFrame(
-        {
-            "arm": ["B_theta0.30", "B_theta0.40", "B_theta0.50"],
-            "theta": [0.3, 0.4, 0.5],
-            "objective_score_mean_mean": [0.6, 0.65, 0.7],
-            "objective_score_mean_std": [0.01, 0.02, 0.03],
-            "implausibility_rate_mean": [0.2, 0.1, 0.05],
-        }
-    ).to_csv(tables_dir / "summary_by_arm.csv", index=False)
-    pd.DataFrame(
-        {"property": ["hERG", "Solubility_AqSolDB"], "n": [10, 10], "spearman_r": [0.8, 0.7], "mean_abs_disagreement": [0.1, 0.2]}
-    ).to_csv(tables_dir / "starting_population_divergence.csv", index=False)
-    pd.DataFrame({"generation": [0, 1], "fitness": [0.1, 0.2]}).to_parquet(raw_dir / "A_seed0.parquet")
 
-    paths = generate_all_figures(tmp_path)
-    assert len(paths) == 5
+def test_fig5_single_seed_has_no_shaded_band(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    pd.DataFrame({"generation": [0, 0, 1, 1], "fitness": [0.1, 0.2, 0.3, 0.4]}).to_parquet(
+        raw / "A_seed0.parquet"
+    )
+    _nonempty(fig5_trajectories(raw, tmp_path / "fig5.png"))
+
+
+def test_fig6_creates_file(tmp_path, results_dir):
+    curves = pd.read_csv(results_dir / "tables" / "decoupling_curves.csv")
+    decoupling = pd.read_csv(results_dir / "tables" / "decoupling_per_seed.csv")
+    out = fig6_decoupling(curves, tmp_path / "fig6.png", decoupling, headline_variant=HEADLINE_VARIANT)
+    _nonempty(out)
+
+
+def test_fig7_creates_file(tmp_path, results_dir):
+    clusters = pd.read_csv(results_dir / "tables" / "scaffold_clusters.csv")
+    _nonempty(fig7_exploit_clusters(clusters, tmp_path / "fig7.png"))
+
+
+def test_fig7_handles_no_clusters(tmp_path):
+    empty = pd.DataFrame(columns=["arm", "grouping", "cluster", "n_molecules"])
+    _nonempty(fig7_exploit_clusters(empty, tmp_path / "fig7.png"))
+
+
+def test_generate_all_figures_creates_seven_files(results_dir):
+    paths = generate_all_figures(results_dir)
+    assert len(paths) == 7
+    assert [p.stem for p in paths] == [
+        "fig1_structure_grid",
+        "fig2_score_vs_nn_distance",
+        "fig3_objective_vs_independent",
+        "fig4_ad_tradeoff",
+        "fig5_trajectories",
+        "fig6_decoupling",
+        "fig7_exploit_clusters",
+    ]
     for path in paths:
-        assert path.exists()
+        _nonempty(path)

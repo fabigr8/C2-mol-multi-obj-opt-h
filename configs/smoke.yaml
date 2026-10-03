@@ -12,7 +12,11 @@ starting_population_baseline_size: 15
 objective:
   normalization: drugbank_percentile
   aggregation: weighted_geometric_mean
-  cache_path: data/processed/admet_cache.parquet
+  # Extra parameters for the chosen aggregation. soft_min_tau is only read
+  # when aggregation: soft_min (the brief SS6.2 ablation).
+  aggregation_params:
+    soft_min_tau: 0.1
+  cache_path: data/processed/smoke_cache.parquet
   components:
     - name: Solubility_AqSolDB
       source: admet-ai
@@ -53,33 +57,86 @@ applicability_domain:
 synthesizability:
   sa_score_threshold: 6.0
 
+# Independent scorers (brief SS4.2, H3). Three variants of one LightGBM recipe,
+# reported separately and never averaged. `model_control` shares ADMET-AI's
+# training data and differs only in architecture; `data_control_half` is trained
+# on a disjoint half of TDC train_val; `data_control_test` is trained on the TDC
+# test split and is the only variant genuinely disjoint from ADMET-AI's training
+# data. See docs/LIMITATIONS.md.
+independent_scorers:
+  variants: [model_control, data_control_half, data_control_test]
+  # Pre-declared headline H3 oracle (brief SS4.2: "the data-control is the
+  # load-bearing scorer").
+  headline_variant: data_control_half
+  cache_path: data/processed/smoke_independent_cache.parquet
+
+# H3b decoupling detector (brief SS4.3). Pre-declared before the first run:
+# the decoupling generation is the first at which the objective-minus-independent
+# gap exceeds its generation-0 value by `margin` for `persistence` consecutive
+# generations. The delta (not the raw gap) is used so the constant oracle offset
+# cancels (brief SS9: "some measured divergence is oracle error").
+decoupling:
+  margin: 0.10
+  persistence: 3
+  margin_sweep: [0.05, 0.10, 0.15]
+
+# Arm R (brief SS3.3): scored once before the run by scripts/score_arm_r.py,
+# because brief SS4.5 requires the battery to be calibrated against it before
+# any arm A molecule exists. The runner loads this frozen artifact and verifies
+# its hash rather than recomputing.
+reference_arm:
+  artifact_path: calibration/arm_r_scored.parquet
+  sample_size: 25
+
 arms:
   - name: D
     description: random sample from starting library, no optimization
+    kind: sample
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: R
+    description: approved drugs (DrugBank set shipped with ADMET-AI), scored but never optimized
+    kind: reference
     use_ad_constraint: false
     use_synth_constraint: false
   - name: A
     description: unconstrained optimization
+    kind: optimize
     use_ad_constraint: false
     use_synth_constraint: false
   - name: B
     description: applicability-domain constrained optimization
+    kind: optimize
     use_ad_constraint: true
     use_synth_constraint: false
   - name: C
     description: applicability-domain + synthesizability constrained optimization
+    kind: optimize
     use_ad_constraint: true
     use_synth_constraint: true
 
-# Implausibility battery (brief SS4/SS8): fails if >= fail_threshold_count of the
-# thresholds below are violated. Frozen at Phase 8 pre-registration sign-off
-# (smoke config mirrors main.yaml's frozen values; not used for reported results).
+# Implausibility battery (brief SS4.5). CALIBRATED against arm R (the 2,845
+# approved drugs in calibration/arm_r_scored.parquet), not declared: thresholds
+# are arm R's (1 - alpha) quantiles at alpha = 0.04, the largest alpha on the
+# declared grid whose joint "fails >= 2" rate on approved drugs is <= 5%.
+# Achieved joint flag rate on arm R: 0.0425.
+#
+# Frozen by scripts/calibrate_battery.py; see calibration/battery_frozen.json,
+# calibration/battery_calibration.csv and docs/PREREGISTRATION.md. The runner
+# refuses to start unless these values match the frozen file, so editing them
+# here without recalibrating will fail fast rather than silently changing the
+# experiment.
+#
+# Supersedes the Phase 8 declared thresholds (MW<=700, cLogP<=7, TPSA<=200,
+# rot<=15, SA<=6.0, 0 PAINS, 0 Brenk), which flagged 15.4% of approved drugs --
+# 3x brief SS4.5's ceiling, driven almost entirely by the zero-Brenk rule, which
+# 48.3% of approved drugs violate.
 implausibility_battery:
-  mw_max: 700
-  clogp_max: 7
-  tpsa_max: 200
-  rotatable_bonds_max: 15
-  sa_score_max: 6.0
-  pains_alerts_max: 0
-  brenk_alerts_max: 0
+  mw_max: 880.0
+  clogp_max: 6.5
+  tpsa_max: 290.0
+  rotatable_bonds_max: 18.0
+  sa_score_max: 7.5
+  pains_alerts_max: 1
+  brenk_alerts_max: 3
   fail_threshold_count: 2

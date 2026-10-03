@@ -92,7 +92,17 @@ Artifacts: `src/rhmoo/{config,run_log,runner}.py`, `configs/{smoke,main}.yaml`, 
 - **`src/rhmoo/metrics.py`**: implements all of brief SS4. `physchem_panel` (RDKit descriptors: MW, cLogP, TPSA, HBD/HBA, rotatable bonds, ring count, largest ring size, fraction sp3, formal charge); `longest_aliphatic_chain` is not an RDKit builtin — implemented as the standard double-BFS longest-path algorithm over the induced subgraph of non-ring carbons, which is provably a forest (any cycle is by definition a ring, so its atoms are `IsInRing`-flagged and excluded). `structural_alerts` wraps RDKit's `FilterCatalog` PAINS/BRENK catalogs. `sa_scores` batches `synthesizability.sa_score`. `implausibility_battery` applies the frozen config thresholds, treating an unparseable molecule as failing every check it can't be evaluated on (not silently passing). `select_top_k`, `objective_trajectory` (per-generation mean/max/min/std, ignoring logged-invalid rows), `component_breakdown`, `nearest_neighbor_similarity` (thin wrapper over Phase 5's `ReferenceFingerprintIndex`), `independent_divergence` (spearman rank correlation + mean absolute disagreement between an objective raw column and its independent-scorer counterpart, NaN-pair-dropping), and `divergence_headline` (starting-population vs optimized-top-k side by side — the project's headline number). No ADMET-AI dependency, so the whole module is smoke-fast.
 - Unit tests (`tests/test_metrics.py`, smoke-marked): hand-computed longest-aliphatic-chain cases (linear chain, all-ring, aromatic ring, ring+substituent, toluene), physchem/alerts/SA valid-vs-invalid-SMILES behaviour, implausibility-battery counting and the NaN-fails-every-check rule, top-k ordering, per-generation trajectory aggregation, component summary stats, nearest-neighbour similarity via a tiny reference index, and independent-divergence golden values (perfect agreement, NaN-dropping). Full suite: 87 tests.
 
-## Phase 8 — Pre-registration freeze — DONE
+## Phase 8 — Pre-registration freeze — DONE, then SUPERSEDED (2026-10-03)
+
+> **Superseded by the brief v2 SS4.5 calibration.** The values below were frozen by
+> *declaration*, not calibrated. Measured against arm R (the 2,845 approved drugs),
+> they flag **15.43%** of approved drugs -- more than 3x brief v2 SS4.5's 5% ceiling --
+> driven almost entirely by `brenk_alerts_max: 0`, which **48.30%** of approved drugs
+> violate. A battery that flags one approved drug in six cannot distinguish an
+> exploited molecule from an ordinary drug, so every downstream implausibility number
+> would have been uninterpretable. The thresholds were recalibrated against arm R;
+> see `docs/PREREGISTRATION.md`. The original values are kept below rather than
+> deleted, because the size of the delta is the justification for recalibrating.
 
 - Implausibility battery and SA threshold placeholders signed off as-is (user confirmed 2026-09-19): MW ≤ 700, cLogP ≤ 7, TPSA ≤ 200, rotatable bonds ≤ 15, SA ≤ 6.0, 0 PAINS alerts, 0 Brenk alerts, fails if ≥ 2 violated. `configs/main.yaml` and `configs/smoke.yaml` updated to drop the "pending sign-off" TODO markers. Any later change to these values, to the AD theta sweep, or to the budget is a new experiment and must be logged as one (brief SS8).
 
@@ -144,10 +154,45 @@ Resolved in Phase 6:
 
 3. Independent scorer path: **in-repo LightGBM** (RDKit descriptors + MACCS keys) on hERG + Solubility_AqSolDB, per the brief's permitted-exception fallback. See "Phase 6 — Independent scorer" above.
 
-Resolved in Phase 8 (user confirmed 2026-09-19):
+Resolved in Phase 8 (user confirmed 2026-09-19), **superseded 2026-10-03**:
 
 5. Implausibility battery + SA threshold sign-off: **frozen as the placeholder values** (MW ≤ 700, cLogP ≤ 7, TPSA ≤ 200, rotatable bonds ≤ 15, SA ≤ 6.0, 0 PAINS, 0 Brenk, fails if ≥ 2 violated). See "Phase 8 — Pre-registration freeze" above.
 
 Resolved in Phase 9 (user confirmed 2026-09-19):
 
 6. Compute budget vs. this container's hardware (2 vCPU/7.8GiB, ~56 mol/s measured vs. the Phase 0 Mac's ~390 mol/s): **finish Phases 7–10 in code, validate via the smoke config, do not execute the full `configs/main.yaml` run here.** The full experiment run and Phase 11 verification are deferred to stronger/more-parallel hardware. See "Phase 9 — Runner" above.
+
+## Phase 12 — brief v2 upgrade — DONE (2026-10-03)
+
+Implements the deltas between `docs/BRIEF_old.md` (v1) and `docs/BRIEFB-V2.md` (v2).
+See `docs/DEVIATIONS.md` for every point where v2 is incorrect about the
+repository or internally inconsistent, and `docs/PREREGISTRATION.md` for what was
+fixed before the first run.
+
+- **Three independent scorers** (`model_control`, `data_control_half`,
+  `data_control_test`) under `models/independent_scorer/<variant>/`, sharing one
+  featurization pass via `IndependentScorerSet`. `model_control` was retrained and
+  verified **byte-identical** to the committed v1 artifact. A pre-declared
+  competence gate (hERG ROC-AUC >= 0.65, solubility MAE <= 1.2) is recorded per
+  variant; all six models pass. Three overlap tests, including one that asserts
+  the `data_control_half` limitation so it cannot be "corrected" wrongly.
+- **Arm R** (approved drugs) as a frozen pre-run artifact under `calibration/`,
+  loaded and hash-verified by the runner rather than rescored, so the arm R in
+  `RESULTS.md` is the set the battery was calibrated on.
+- **Battery calibration** (`src/rhmoo/calibration.py`): single-knob rule,
+  alpha* = 0.04, joint flag rate 0.0425 on arm R. Blind spot declared.
+- **`rhmoo.preflight`**: the runner refuses to start against an uncalibrated or
+  edited battery, a missing scorer variant, or an arm R artifact that does not
+  match its manifest.
+- **Arm kinds** replace arm-name string matching throughout; `_VALID_ARM_NAMES`
+  is gone, which also unblocks the SS6.1 patch-round arms.
+- **Ensemble variance**: ADMET-AI does not expose per-member predictions, but
+  computes them. `predict_with_ensemble_spread` mirrors the private path and keeps
+  the spread at zero extra inference cost; means verified identical to `predict()`.
+- **H3b decoupling** (`src/rhmoo/decoupling.py`), **exploit clustering**,
+  **arm R percentile**, **per-component log shares**, figures 6 and 7, tidy
+  `divergence_long.csv`, and `docs/{RELATED_WORK,LIMITATIONS,DEVIATIONS,PREREGISTRATION}.md`.
+- **Stable argsort** in the GA: unstable tie-breaking is a cross-platform
+  determinism hole, and SS10 requires an identical top-k on re-run on another machine.
+- **Canonical top-k deduplication**: SELFIES decoding emits several SMILES
+  spellings of the same molecule, which an undeduplicated top-k double-counts.

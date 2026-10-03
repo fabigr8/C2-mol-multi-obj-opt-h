@@ -159,6 +159,32 @@ def sa_scores(smiles_list: list[str]) -> np.ndarray:
     return np.array([np.nan if (s := sa_score(smiles)) is None else s for smiles in smiles_list])
 
 
+#: The pre-declared battery's checks (brief SS4.5). The criteria set is fixed;
+#: calibration moves only the thresholds. Adding criteria at a fixed
+#: fail_threshold_count makes the battery *looser*, not stricter, because every
+#: threshold must then sit further into the approved-drug tail to hold the <=5%
+#: joint flag rate -- so the set stays as declared.
+BATTERY_CHECK_COLUMNS = (
+    "fails_mw",
+    "fails_clogp",
+    "fails_tpsa",
+    "fails_rotatable_bonds",
+    "fails_sa",
+    "fails_pains",
+    "fails_brenk",
+)
+
+
+def battery_from_detail(detail: pd.DataFrame, battery: dict) -> pd.DataFrame:
+    """`implausibility_battery` applied to an already-scored per-molecule frame
+    (as written by `scoring.score_molecule_set`), rather than to three separate
+    inputs.
+    """
+    return implausibility_battery(
+        detail, detail, detail["sa_score"].to_numpy(), battery
+    )
+
+
 def implausibility_battery(
     panel: pd.DataFrame, alerts: pd.DataFrame, sa: np.ndarray, battery: dict
 ) -> pd.DataFrame:
@@ -181,7 +207,9 @@ def implausibility_battery(
     checks["fails_sa"] = _check(sa_series, battery["sa_score_max"])
     checks["fails_pains"] = _check(alerts["pains_alerts"], battery["pains_alerts_max"])
     checks["fails_brenk"] = _check(alerts["brenk_alerts"], battery["brenk_alerts_max"])
-    checks["fail_count"] = checks.sum(axis=1)
+    # Sum the named check columns explicitly. A bare sum(axis=1) silently
+    # miscounts the moment any non-check column is added above this line.
+    checks["fail_count"] = checks[list(BATTERY_CHECK_COLUMNS)].sum(axis=1)
     checks["implausible"] = checks["fail_count"] >= battery["fail_threshold_count"]
     return checks
 
@@ -260,3 +288,178 @@ def divergence_headline(
         merged["mean_abs_disagreement_optimized"] - merged["mean_abs_disagreement_starting"]
     )
     return merged
+
+
+# --- brief SS4.1: arm R percentile ------------------------------------------
+
+
+def arm_r_percentile(values: np.ndarray, arm_r_scores: np.ndarray) -> np.ndarray:
+    """Percentile of each composite score within the approved-drug (arm R)
+    composite distribution (brief SS4.1).
+
+    This is what makes the headline legible: "arm A's molecules score higher on
+    this objective than any approved drug does" rather than an absolute
+    composite value that means nothing on its own.
+
+    Reuses `normalization.percentile_rank`, which already handles ties by mean
+    rank -- the same function the objective itself normalizes with.
+    """
+    from rhmoo.normalization import percentile_rank
+
+    reference = np.asarray(arm_r_scores, dtype=float)
+    reference = reference[~np.isnan(reference)]
+    return percentile_rank(reference, np.asarray(values, dtype=float))
+
+
+# --- brief SS4.2 req 1: per-component contribution to the composite ---------
+
+
+def component_log_contributions(
+    normalized: pd.DataFrame, weights: dict[str, float]
+) -> pd.DataFrame:
+    """Decompose a weighted geometric mean into per-component contributions.
+
+    Because `log S = sum_i (w_i / W) * log s_i`, the composite's log score is
+    exactly additive in the components. So `contribution_i = (w_i/W) * log s_i`
+    is the component's share of the composite, and -- since every normalized
+    score is in [0, 1], making every term <= 0 -- `share_i = contribution_i /
+    sum_j contribution_j` is positive and sums to 1. It reads as "the fraction
+    of the composite's log-score shortfall attributable to component i".
+
+    This is the metric brief SS4.2 requirement 1 asks for: it shows how much of
+    arm A's achieved score came through the Caco-2 / CYP3A4 endpoints, which no
+    independent scorer covers and where exploitation is therefore invisible to
+    H3.
+
+    Aggregating the *normalized* columns matters: raw predictor values live on
+    incomparable scales (a probability vs a log-solubility), so "which
+    component is exploited hardest" is not a meaningful question about them.
+    """
+    names = list(weights)
+    total_weight = sum(weights.values())
+    if total_weight <= 0:
+        raise ValueError("weights must sum to a positive number")
+
+    out = pd.DataFrame(index=normalized.index)
+    with np.errstate(divide="ignore"):
+        for name in names:
+            out[f"{name}_log_contribution"] = (weights[name] / total_weight) * np.log(
+                normalized[name].to_numpy(dtype=float)
+            )
+
+    contributions = out[[f"{n}_log_contribution" for n in names]].to_numpy()
+    totals = contributions.sum(axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shares = np.where(totals == 0, np.nan, contributions / totals)
+    for i, name in enumerate(names):
+        out[f"{name}_log_share"] = shares[:, i]
+    return out
+
+
+def leave_one_out_deltas(normalized: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
+    """Change in composite from dropping each component and renormalizing the
+    remaining weights. The intuitive companion to the log shares.
+    """
+    names = list(weights)
+    total = sum(weights.values())
+
+    def _geo(subset: list[str]) -> np.ndarray:
+        sub_total = sum(weights[n] for n in subset)
+        with np.errstate(divide="ignore"):
+            logs = sum(
+                (weights[n] / sub_total) * np.log(normalized[n].to_numpy(dtype=float)) for n in subset
+            )
+        return np.exp(logs)
+
+    full = _geo(names) if total > 0 else np.zeros(len(normalized))
+    out = pd.DataFrame(index=normalized.index)
+    for name in names:
+        remaining = [n for n in names if n != name]
+        out[f"{name}_leave_one_out_delta"] = (_geo(remaining) - full) if remaining else np.nan
+    return out
+
+
+def dominant_component(contributions: pd.DataFrame, component_names: list[str]) -> pd.Series:
+    """The component accounting for the largest share of the composite's log
+    shortfall (brief SS5.1).
+
+    Defined on the log share rather than on the raw normalized value, so
+    "dominant" stays consistent with how the composite is actually aggregated.
+    """
+    share_columns = [f"{n}_log_share" for n in component_names]
+    shares = contributions[share_columns]
+    return pd.Series(
+        [component_names[i] for i in np.argmax(shares.to_numpy(), axis=1)],
+        index=contributions.index,
+    )
+
+
+# --- brief SS5.1: exploit characterization ----------------------------------
+
+#: Label for molecules with no ring system, whose Murcko scaffold is the empty
+#: string. GA degenerates are frequently acyclic chains, so this is expected to
+#: be a populated cluster -- a large "<acyclic>" bucket is a finding about what
+#: the search converged on, not a defect, but it must be labelled rather than
+#: silently collapsed into an unnamed group.
+ACYCLIC_SCAFFOLD = "<acyclic>"
+UNPARSEABLE_SCAFFOLD = "<unparseable>"
+
+
+def murcko_scaffold(smiles: str) -> str:
+    from rdkit.Chem.Scaffolds import MurckoScaffold
+
+    mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+    if mol is None:
+        return UNPARSEABLE_SCAFFOLD
+    try:
+        scaffold = MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
+    except Exception:
+        return UNPARSEABLE_SCAFFOLD
+    return scaffold if scaffold else ACYCLIC_SCAFFOLD
+
+
+def generic_scaffold(smiles: str) -> str:
+    """Murcko scaffold reduced to its generic framework (atom types erased).
+
+    A secondary grouping that merges scaffolds differing only by heteroatom
+    substitution. `MakeScaffoldGeneric` raises on exotic valences, which
+    adversarially generated molecules produce, so failures degrade to the
+    plain scaffold.
+    """
+    from rdkit.Chem.Scaffolds import MurckoScaffold
+
+    mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+    if mol is None:
+        return UNPARSEABLE_SCAFFOLD
+    try:
+        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        generic = MurckoScaffold.MakeScaffoldGeneric(scaffold)
+        out = Chem.MolToSmiles(generic)
+        return out if out else ACYCLIC_SCAFFOLD
+    except Exception:
+        return murcko_scaffold(smiles)
+
+
+def scaffold_clusters(detail: pd.DataFrame, group_column: str = "murcko_scaffold") -> pd.DataFrame:
+    """Counts and a representative structure per cluster (brief SS5.1).
+
+    Turns a scalar implausibility rate into a structural claim -- "the search
+    converged on N recurring motifs" -- which is both more informative and more
+    legible. The representative is the highest-scoring member, not a
+    hand-picked one (brief SS9: no cherry-picking).
+    """
+    rows = []
+    for value, group in detail.groupby(group_column, dropna=False):
+        best = group.loc[group["objective_score"].idxmax()] if group["objective_score"].notna().any() else group.iloc[0]
+        rows.append(
+            {
+                group_column: value,
+                "n_molecules": int(len(group)),
+                "fraction": float(len(group) / len(detail)),
+                "objective_score_mean": float(group["objective_score"].mean()),
+                "objective_score_max": float(group["objective_score"].max()),
+                "representative_smiles": best["smiles"],
+                "representative_objective_score": float(best["objective_score"]),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("n_molecules", ascending=False).reset_index(drop=True)

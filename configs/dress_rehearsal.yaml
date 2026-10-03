@@ -1,0 +1,151 @@
+# Dress rehearsal: structurally identical to configs/main.yaml at ~1/30 the
+# compute. Same arms, same 5 seeds, same theta sweep, same calibrated battery,
+# same three scorer variants, full arm R (loaded, so free). ONLY the GA budget
+# and the reported-set sizes differ.
+#
+# Purpose: exercise every code path the main run takes -- the three-variant
+# plumbing, arm R loading, decoupling detection, scaffold clustering, all seven
+# figures and RESULTS.md -- without the multi-hour budget. tests/test_configs_match.py
+# asserts this file differs from main.yaml ONLY in the keys listed there, so the
+# rehearsal cannot silently drift from the thing it rehearses.
+#
+# Not used for reported results.
+name: dress_rehearsal
+seeds: [0, 1, 2, 3, 4]
+k_top: 20
+starting_population_path: data/processed/starting_population.csv # scripts/build_starting_population.py
+reference_set_path: data/reference/reference_union.csv
+results_dir: results
+starting_population_baseline_size: 500
+
+objective:
+  normalization: drugbank_percentile
+  aggregation: weighted_geometric_mean
+  # Extra parameters for the chosen aggregation. soft_min_tau is only read
+  # when aggregation: soft_min (the brief SS6.2 ablation).
+  aggregation_params:
+    soft_min_tau: 0.1
+  cache_path: data/processed/admet_cache.parquet
+  components:
+    - name: Solubility_AqSolDB
+      source: admet-ai
+      direction: max
+      weight: 0.2
+    - name: hERG
+      source: admet-ai
+      direction: min
+      weight: 0.2
+    - name: CYP3A4_Veith
+      source: admet-ai
+      direction: min
+      weight: 0.2
+    - name: Caco2_Wang
+      source: admet-ai
+      direction: max
+      weight: 0.2
+    - name: QED
+      source: rdkit
+      direction: max
+      weight: 0.2
+
+ga:
+  population_size: 40
+  n_generations: 15
+  elitism_fraction: 0.1
+  tournament_k: 3
+  crossover_enabled: false
+  crossover_rate: 0.0
+  mutation_rate: 0.1
+
+applicability_domain:
+  theta_values: [0.3, 0.4, 0.5]
+  fingerprint_radius: 2
+  fingerprint_bits: 2048
+  fingerprint_cache_path: data/processed/reference_fingerprints.npz
+
+synthesizability:
+  sa_score_threshold: 6.0
+
+# Independent scorers (brief SS4.2, H3). Three variants of one LightGBM recipe,
+# reported separately and never averaged. `model_control` shares ADMET-AI's
+# training data and differs only in architecture; `data_control_half` is trained
+# on a disjoint half of TDC train_val; `data_control_test` is trained on the TDC
+# test split and is the only variant genuinely disjoint from ADMET-AI's training
+# data. See docs/LIMITATIONS.md.
+independent_scorers:
+  variants: [model_control, data_control_half, data_control_test]
+  # Pre-declared headline H3 oracle (brief SS4.2: "the data-control is the
+  # load-bearing scorer").
+  headline_variant: data_control_half
+  cache_path: data/processed/independent_cache.parquet
+
+# H3b decoupling detector (brief SS4.3). Pre-declared before the first run:
+# the decoupling generation is the first at which the objective-minus-independent
+# gap exceeds its generation-0 value by `margin` for `persistence` consecutive
+# generations. The delta (not the raw gap) is used so the constant oracle offset
+# cancels (brief SS9: "some measured divergence is oracle error").
+decoupling:
+  margin: 0.10
+  persistence: 3
+  margin_sweep: [0.05, 0.10, 0.15]
+
+# Arm R (brief SS3.3): scored once before the run by scripts/score_arm_r.py,
+# because brief SS4.5 requires the battery to be calibrated against it before
+# any arm A molecule exists. The runner loads this frozen artifact and verifies
+# its hash rather than recomputing.
+reference_arm:
+  artifact_path: calibration/arm_r_scored.parquet
+  sample_size: null
+
+arms:
+  - name: D
+    description: random sample from starting library, no optimization
+    kind: sample
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: R
+    description: approved drugs (DrugBank set shipped with ADMET-AI), scored but never optimized
+    kind: reference
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: A
+    description: unconstrained optimization
+    kind: optimize
+    use_ad_constraint: false
+    use_synth_constraint: false
+  - name: B
+    description: applicability-domain constrained optimization
+    kind: optimize
+    use_ad_constraint: true
+    use_synth_constraint: false
+  - name: C
+    description: applicability-domain + synthesizability constrained optimization
+    kind: optimize
+    use_ad_constraint: true
+    use_synth_constraint: true
+
+# Implausibility battery (brief SS4.5). CALIBRATED against arm R (the 2,845
+# approved drugs in calibration/arm_r_scored.parquet), not declared: thresholds
+# are arm R's (1 - alpha) quantiles at alpha = 0.04, the largest alpha on the
+# declared grid whose joint "fails >= 2" rate on approved drugs is <= 5%.
+# Achieved joint flag rate on arm R: 0.0425.
+#
+# Frozen by scripts/calibrate_battery.py; see calibration/battery_frozen.json,
+# calibration/battery_calibration.csv and docs/PREREGISTRATION.md. The runner
+# refuses to start unless these values match the frozen file, so editing them
+# here without recalibrating will fail fast rather than silently changing the
+# experiment.
+#
+# Supersedes the Phase 8 declared thresholds (MW<=700, cLogP<=7, TPSA<=200,
+# rot<=15, SA<=6.0, 0 PAINS, 0 Brenk), which flagged 15.4% of approved drugs --
+# 3x brief SS4.5's ceiling, driven almost entirely by the zero-Brenk rule, which
+# 48.3% of approved drugs violate.
+implausibility_battery:
+  mw_max: 880.0
+  clogp_max: 6.5
+  tpsa_max: 290.0
+  rotatable_bonds_max: 18.0
+  sa_score_max: 7.5
+  pains_alerts_max: 1
+  brenk_alerts_max: 3
+  fail_threshold_count: 2

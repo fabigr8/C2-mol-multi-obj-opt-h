@@ -1,0 +1,9 @@
+criterion,column,threshold,arm_r_flag_rate,alpha,rule
+mw_max,molecular_weight,880.0,0.04007029876977153,0.04,"ceil(quantile(arm_R[molecular_weight], 1-alpha) / 10.0) * 10.0"
+clogp_max,clogp,6.5,0.03971880492091388,0.04,"ceil(quantile(arm_R[clogp], 1-alpha) / 0.5) * 0.5"
+tpsa_max,tpsa,290.0,0.03760984182776801,0.04,"ceil(quantile(arm_R[tpsa], 1-alpha) / 10.0) * 10.0"
+rotatable_bonds_max,rotatable_bonds,18.0,0.03760984182776801,0.04,"ceil(quantile(arm_R[rotatable_bonds], 1-alpha) / 1.0) * 1.0"
+sa_score_max,sa_score,7.5,0.03479789103690686,0.04,"ceil(quantile(arm_R[sa_score], 1-alpha) / 0.5) * 0.5"
+pains_alerts_max,pains_alerts,1.0,0.003866432337434095,0.04,min integer c with P(arm_R[pains_alerts] > c) <= alpha
+brenk_alerts_max,brenk_alerts,3.0,0.013005272407732865,0.04,min integer c with P(arm_R[brenk_alerts] > c) <= alpha
+JOINT_fails_ge_2,implausible,2.0,0.042530755711775045,0.04,fail_count >= 2

@@ -1,0 +1,6 @@
+control,group,smiles,fails_mw,fails_clogp,fails_tpsa,fails_rotatable_bonds,fails_sa,fails_pains,fails_brenk,fail_count,implausible
+long_alkane_chain,detectable,CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC,False,True,False,True,False,False,False,2,True
+polyhalogenated_chain,detectable,C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F),True,True,False,True,False,False,False,3,True
+high_mw_repeat,detectable,c1ccccc1CCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCOCCO,True,False,True,True,False,False,False,3,True
+large_macrocycle,blind_spot,C1CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC1,False,True,False,False,False,False,False,1,False
+fused_polyaromatic,blind_spot,c1ccc2cc3cc4cc5cc6ccccc6cc5cc4cc3cc2c1,False,True,False,False,False,False,False,1,False

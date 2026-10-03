@@ -42,6 +42,7 @@ class SelfiesGA:
         self.fitness_fn = fitness_fn
         self.rng = random.Random(seed)
         self.log_rows: list[dict] = []
+        self.elite_rows: list[dict] = []
 
     def _evaluate(
         self,
@@ -102,16 +103,45 @@ class SelfiesGA:
         operator = "+".join(applied) if applied else "clone"
         return tokens_to_smiles(child_tokens), parents, operator
 
+    def _log_elites(self, generation: int, population: list[str], fitness: np.ndarray) -> None:
+        """Record the elite set at the *end* of `generation` (brief SS4.3).
+
+        Elites are carried into the next generation without re-evaluation, so a
+        carried elite's trajectory row keeps its original generation label and
+        nothing in the trajectory says which molecules were elite when. The
+        H3b decoupling analysis needs exactly that, so it is logged explicitly
+        rather than replayed from the trajectory -- replaying would couple a
+        load-bearing number to log row order and to argsort tie-breaking.
+
+        Ranked by `fitness` (penalised), i.e. by what the GA itself carries
+        forward, so this set is the GA's own notion of its elite rather than a
+        reconstruction that could drift from it.
+        """
+        order = np.argsort(-fitness, kind="stable")[: self.config.n_elite]
+        for rank, index in enumerate(order):
+            self.elite_rows.append(
+                {
+                    "generation": generation,
+                    "rank": rank,
+                    "smiles": population[index],
+                    "fitness": float(fitness[index]),
+                }
+            )
+
+    def elite_log(self) -> pd.DataFrame:
+        return pd.DataFrame(self.elite_rows)
+
     def run(self, initial_population: list[str]) -> tuple[list[str], np.ndarray, pd.DataFrame]:
         population = list(initial_population)
         fitness = self._evaluate(
             population, 0, [() for _ in population], ["init" for _ in population]
         )
 
-        n_elite = max(1, int(len(population) * self.config.elitism_fraction))
+        n_elite = self.config.n_elite
+        self._log_elites(0, population, fitness)
 
         for generation in range(1, self.config.n_generations + 1):
-            order = np.argsort(-fitness)
+            order = np.argsort(-fitness, kind="stable")
             elite_idx = order[:n_elite]
             elites = [population[i] for i in elite_idx]
             elite_fitness = fitness[elite_idx]
@@ -134,5 +164,6 @@ class SelfiesGA:
 
             population = elites + offspring
             fitness = np.concatenate([elite_fitness, offspring_fitness])
+            self._log_elites(generation, population, fitness)
 
         return population, fitness, pd.DataFrame(self.log_rows)

@@ -1,59 +1,49 @@
-import pandas as pd
 import pytest
 
-from rhmoo.report import generate_results_md
+from rhmoo.report import FIGURE_NAMES, generate_results_md
 
 pytestmark = pytest.mark.smoke
 
 
-def _write_tables(tables_dir):
-    tables_dir.mkdir(parents=True)
-    pd.DataFrame(
-        {"arm": ["A", "D"], "theta": [None, None], "objective_score_mean_mean": [0.6, 0.3]}
-    ).to_csv(tables_dir / "summary_by_arm.csv", index=False)
-    pd.DataFrame(
-        {"property": ["hERG", "Solubility_AqSolDB"], "n": [10, 10], "spearman_r": [0.8, 0.7], "mean_abs_disagreement": [0.1, 0.2]}
-    ).to_csv(tables_dir / "starting_population_divergence.csv", index=False)
-    pd.DataFrame(
-        {
-            "arm": ["A", "D"],
-            "hERG": [0.1, 0.2],
-            "hERG_independent": [0.15, 0.25],
-            "Solubility_AqSolDB": [-2.0, -3.0],
-            "Solubility_AqSolDB_independent": [-2.1, -2.9],
-        }
-    ).to_csv(tables_dir / "topk_detail.csv", index=False)
+def test_generate_results_md_contains_every_section(results_dir):
+    content = generate_results_md(results_dir).read_text()
 
-
-def test_generate_results_md_has_no_figures_when_none_exist(tmp_path):
-    _write_tables(tmp_path / "tables")
-
-    out_path = generate_results_md(tmp_path)
-
-    content = out_path.read_text()
     assert content.startswith("# RESULTS")
-    assert "## Per-arm summary" in content
-    assert "starting population" in content
-    assert "optimized top-k" in content
-    assert "fig1_structure_grid" not in content
+    for heading in (
+        "## Per-arm summary",
+        "## H3: objective-vs-independent divergence -- headline scorer variant",
+        "## H3: objective-vs-independent divergence -- all scorer variants",
+        "## H3b: decoupling generation (primary pre-declared margin)",
+        "## Exploit clusters (optimized arms)",
+    ):
+        assert heading in content
 
 
-def test_generate_results_md_embeds_existing_figures(tmp_path):
-    _write_tables(tmp_path / "tables")
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir()
-    (figures_dir / "fig1_structure_grid.png").write_bytes(b"fake-png")
+def test_results_md_contains_no_prose(results_dir):
+    """brief SS5: RESULTS.md is a machine-generated artifact -- numbers, tables
+    and figure embeds only, no conclusions, narrative or claims. Enforced
+    structurally so prose cannot slip in undetected.
+    """
+    content = generate_results_md(results_dir).read_text()
+    offending = [
+        line
+        for line in content.splitlines()
+        if line.strip() and not (line.startswith("#") or line.startswith("|") or line.startswith("!["))
+    ]
+    assert offending == []
 
-    out_path = generate_results_md(tmp_path)
 
-    content = out_path.read_text()
-    assert "![fig1_structure_grid](figures/fig1_structure_grid.png)" in content
+def test_figures_are_embedded_when_present(results_dir):
+    figures = results_dir / "figures"
+    figures.mkdir()
+    for name in FIGURE_NAMES:
+        (figures / f"{name}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    content = generate_results_md(results_dir).read_text()
+    for name in FIGURE_NAMES:
+        assert f"![{name}](figures/{name}.png)" in content
 
 
-def test_generate_results_md_has_no_prose_only_headers_and_tables(tmp_path):
-    _write_tables(tmp_path / "tables")
-
-    content = generate_results_md(tmp_path).read_text()
-
-    for line in content.splitlines():
-        assert line == "" or line.startswith("#") or line.startswith("|") or line.startswith("!["), line
+def test_missing_figures_are_skipped_silently(results_dir):
+    content = generate_results_md(results_dir).read_text()
+    assert "![" not in content
