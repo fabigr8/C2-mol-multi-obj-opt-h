@@ -116,3 +116,63 @@ def test_invalid_offspring_are_logged_not_silently_dropped(monkeypatch):
     invalid_rows = log[log["valid"] == False]  # noqa: E712
     assert len(invalid_rows) > 0
     assert invalid_rows["smiles"].isna().all()
+
+
+def test_elite_log_records_every_generation(_ga_config=None):
+    """brief SS4.3 needs the elite set per generation, but elites are carried
+    forward without re-evaluation, so the trajectory alone cannot say which
+    molecules were elite when.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from rhmoo.config import GAConfig
+    from rhmoo.ga import SelfiesGA
+
+    config = GAConfig(
+        population_size=10, n_generations=4, elitism_fraction=0.2, tournament_k=3,
+        crossover_enabled=False, crossover_rate=0.0, mutation_rate=1.0,
+    )
+    population = ["CCO", "c1ccccc1", "CCN", "CCC", "CCCC", "CCOC", "CCCN", "c1ccncc1", "CCCO", "CC"]
+
+    def fitness_fn(smiles):
+        return pd.DataFrame({"fitness": np.linspace(0, 1, len(smiles))})
+
+    ga = SelfiesGA(config, fitness_fn, seed=0)
+    ga.run(population)
+    elites = ga.elite_log()
+
+    assert len(elites) == config.n_elite * (config.n_generations + 1)
+    assert sorted(elites["generation"].unique()) == list(range(config.n_generations + 1))
+    assert set(elites.columns) == {"generation", "rank", "smiles", "fitness"}
+    # Ranked best-first within each generation.
+    for _, group in elites.groupby("generation"):
+        assert group.sort_values("rank")["fitness"].is_monotonic_decreasing
+
+
+def test_elite_selection_uses_stable_tie_breaking():
+    """Unstable argsort tie-breaking is platform- and build-dependent, and brief
+    SS10 requires an identical top-k when the run is repeated on another machine.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from rhmoo.config import GAConfig
+    from rhmoo.ga import SelfiesGA
+
+    config = GAConfig(
+        population_size=8, n_generations=3, elitism_fraction=0.25, tournament_k=2,
+        crossover_enabled=False, crossover_rate=0.0, mutation_rate=1.0,
+    )
+    population = ["CCO", "c1ccccc1", "CCN", "CCC", "CCCC", "CCOC", "CCCN", "CC"]
+
+    # All ties: only a stable sort gives a reproducible elite set.
+    def fitness_fn(smiles):
+        return pd.DataFrame({"fitness": np.full(len(smiles), 0.5)})
+
+    first = SelfiesGA(config, fitness_fn, seed=0)
+    first.run(population)
+    second = SelfiesGA(config, fitness_fn, seed=0)
+    second.run(population)
+
+    pd.testing.assert_frame_equal(first.elite_log(), second.elite_log())
