@@ -88,12 +88,23 @@ The battery is calibrated so that no more than 5% of approved drugs are flagged
 (`docs/PREREGISTRATION.md`). Pre-declared positive controls show it catches
 degeneracy driven by size, lipophilicity, flexibility and structural alerts.
 
+It also catches implausible **ionization states** -- carbanions, phosphonium
+species, non-aromatic azanides -- through a disqualifying criterion that flags a
+molecule on its own rather than contributing one vote toward "fails >= 2". That
+criterion was added after a rehearsal showed the counting-only battery reporting
+0.000 for every optimized arm; its provenance is disclosed in
+`docs/PREREGISTRATION.md`.
+
 It does **not** catch ring-topology degeneracy. A 42-membered all-carbon
 macrocycle and a heavily fused polyaromatic each fail only one criterion and are
-not flagged, because the seven frozen criteria contain no ring-count, ring-size
-or aromaticity check. Adding such criteria was rejected rather than adopted:
-at a fixed "fails >= 2" rule, more criteria force every threshold further into
-the approved-drug tail to hold the 5% ceiling, making the battery looser overall.
+not flagged, because the frozen criteria contain no ring-count, ring-size or
+aromaticity check. Adding more *continuous* criteria was rejected rather than
+adopted: at a fixed "fails >= 2" rule each one is defined by an approved-drug
+quantile and so flags about alpha of approved drugs by construction, forcing
+every other threshold further into the tail to hold the 5% ceiling and making
+the battery looser overall. (Cheap *count* criteria over near-always-zero
+quantities, like the alert counts and the charge criterion, do not have this
+cost -- which is why the charge criterion could be added for free.)
 
 **The reported implausibility rate is therefore a lower bound on implausibility,
 not a complete account of it.**

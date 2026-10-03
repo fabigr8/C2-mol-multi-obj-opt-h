@@ -16,6 +16,8 @@ ADMET-AI dependency of its own, so it stays fast to unit test.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
 from rdkit import Chem
@@ -36,6 +38,7 @@ PHYSCHEM_COLUMNS = (
     "fraction_csp3",
     "formal_charge",
     "longest_aliphatic_chain",
+    "implausible_charge_centres",
 )
 
 
@@ -110,6 +113,78 @@ def longest_aliphatic_chain(mol: Chem.Mol) -> int:
     return longest
 
 
+
+#: Elements that appear as salt counterions in approved-drug entries (Na+, Cl-,
+#: Mg2+, Fe3+ ...). A charge on one of these is a formulation detail, not a
+#: statement about the parent molecule.
+_COUNTERION_ELEMENTS = frozenset(
+    """Na K Ca Mg Zn Fe Al Li Mn Cu Ag Bi Gd Pt Cl Br I F Cs Sr Ba Cr Co Ni Sn
+    Tc Ra Se As Sb Ti Y La Lu In Ga Hg Pb Tl Au Rb""".split()
+)
+
+def _is_routine_drug_charge(atom) -> bool:
+    """Whether a charged atom carries one of the ionization states that real
+    drug-like matter routinely shows.
+
+    Three, and only three:
+
+    - **ammonium / amidinium** (N with a positive charge) -- ubiquitous;
+    - **oxyanion** (O with a negative charge) -- carboxylate, phenolate;
+    - **azolate** (aromatic N with a negative charge) -- tetrazolate and
+      related bioisosteres, where the ring delocalises the charge.
+
+    Anything else on the parent fragment is an unusual ionization state. A
+    carbanion, a bare azanide or a phosphonium is not an isolable species in a
+    bottle, however happily RDKit parses it.
+
+    Stated from chemistry rather than fitted: measured against the approved-drug
+    reference set it flags 0.74% of molecules, so it describes something real
+    drugs essentially never do, and it spares every legitimate motif it was
+    checked against (aspirin, choline, sodium benzoate, tetrazolate).
+    """
+    charge = atom.GetFormalCharge()
+    symbol = atom.GetSymbol()
+    if symbol == "N" and charge > 0:
+        return True
+    if symbol == "O" and charge < 0:
+        return True
+    if symbol == "N" and charge < 0 and atom.GetIsAromatic():
+        return True
+    return False
+
+
+def implausible_charge_centres(smiles: str) -> float:
+    """Count of charged atoms in the parent fragment that are neither a
+    counterion nor a routine drug ionization state.
+
+    Counted on the largest fragment so a salt is not penalised for its
+    counterion.
+    """
+    mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+    if mol is None:
+        return float("nan")
+    try:
+        mol = _largest_fragment().choose(mol)
+    except Exception:  # pragma: no cover - degrades to the whole molecule
+        pass
+    return float(
+        sum(
+            1
+            for atom in mol.GetAtoms()
+            if atom.GetFormalCharge() != 0
+            and atom.GetSymbol() not in _COUNTERION_ELEMENTS
+            and not _is_routine_drug_charge(atom)
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def _largest_fragment():
+    from rdkit.Chem.MolStandardize import rdMolStandardize
+
+    return rdMolStandardize.LargestFragmentChooser()
+
+
 def physchem_panel(smiles_list: list[str]) -> pd.DataFrame:
     """One row per input SMILES (same order); rows for invalid SMILES are all-NaN."""
     rows = []
@@ -132,6 +207,7 @@ def physchem_panel(smiles_list: list[str]) -> pd.DataFrame:
                 "fraction_csp3": Descriptors.FractionCSP3(mol),
                 "formal_charge": Chem.GetFormalCharge(mol),
                 "longest_aliphatic_chain": longest_aliphatic_chain(mol),
+                "implausible_charge_centres": implausible_charge_centres(smiles),
             }
         )
     return pd.DataFrame(rows, columns=list(PHYSCHEM_COLUMNS))
@@ -172,7 +248,24 @@ BATTERY_CHECK_COLUMNS = (
     "fails_sa",
     "fails_pains",
     "fails_brenk",
+    "fails_charge",
 )
+
+#: Checks that flag a molecule on their own rather than contributing one vote
+#: toward `fail_threshold_count`.
+#:
+#: brief SS4.5 defines implausibility as "fails >= 2 of a pre-declared battery",
+#: which treats every criterion as an exchangeable soft signal. That is right
+#: for the continuous criteria -- a molecule a little over the weight cutoff is
+#: not implausible by itself -- but wrong for a structural impossibility. A
+#: carbanion is not half-implausible, and because such molecules are typically
+#: small they comfortably pass every size and lipophilicity criterion, so under
+#: a pure fails>=2 rule they are never flagged at all.
+#:
+#: The constraint SS4.5 actually exists to protect -- no more than 5% of
+#: approved drugs flagged -- is still enforced over the combined rule by
+#: `rhmoo.calibration`.
+DISQUALIFYING_CHECK_COLUMNS = ("fails_charge",)
 
 
 def battery_from_detail(detail: pd.DataFrame, battery: dict) -> pd.DataFrame:
@@ -207,10 +300,15 @@ def implausibility_battery(
     checks["fails_sa"] = _check(sa_series, battery["sa_score_max"])
     checks["fails_pains"] = _check(alerts["pains_alerts"], battery["pains_alerts_max"])
     checks["fails_brenk"] = _check(alerts["brenk_alerts"], battery["brenk_alerts_max"])
+    checks["fails_charge"] = _check(
+        panel["implausible_charge_centres"], battery["implausible_charge_centres_max"]
+    )
     # Sum the named check columns explicitly. A bare sum(axis=1) silently
     # miscounts the moment any non-check column is added above this line.
     checks["fail_count"] = checks[list(BATTERY_CHECK_COLUMNS)].sum(axis=1)
-    checks["implausible"] = checks["fail_count"] >= battery["fail_threshold_count"]
+    disqualified = checks[list(DISQUALIFYING_CHECK_COLUMNS)].any(axis=1)
+    checks["disqualified"] = disqualified
+    checks["implausible"] = (checks["fail_count"] >= battery["fail_threshold_count"]) | disqualified
     return checks
 
 

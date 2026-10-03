@@ -15,67 +15,68 @@
   "alpha_scan": [
     {
       "alpha": 0.1,
-      "joint_flag_rate": 0.12161687170474517,
+      "joint_flag_rate": 0.12688927943760983,
       "within_target": false
     },
     {
       "alpha": 0.09,
-      "joint_flag_rate": 0.11072056239015818,
+      "joint_flag_rate": 0.11634446397188049,
       "within_target": false
     },
     {
       "alpha": 0.08,
-      "joint_flag_rate": 0.09982425307557118,
+      "joint_flag_rate": 0.1054481546572935,
       "within_target": false
     },
     {
       "alpha": 0.07,
-      "joint_flag_rate": 0.08611599297012303,
+      "joint_flag_rate": 0.09209138840070298,
       "within_target": false
     },
     {
       "alpha": 0.06,
-      "joint_flag_rate": 0.07521968365553602,
+      "joint_flag_rate": 0.08119507908611599,
       "within_target": false
     },
     {
       "alpha": 0.05,
-      "joint_flag_rate": 0.05729349736379613,
+      "joint_flag_rate": 0.06397188049209139,
       "within_target": false
     },
     {
       "alpha": 0.04,
-      "joint_flag_rate": 0.042530755711775045,
+      "joint_flag_rate": 0.0492091388400703,
       "within_target": true
     },
     {
       "alpha": 0.03,
-      "joint_flag_rate": 0.033391915641476276,
+      "joint_flag_rate": 0.04007029876977153,
       "within_target": true
     },
     {
       "alpha": 0.02,
-      "joint_flag_rate": 0.024956063268892794,
+      "joint_flag_rate": 0.03163444639718805,
       "within_target": true
     },
     {
       "alpha": 0.01,
-      "joint_flag_rate": 0.01054481546572935,
+      "joint_flag_rate": 0.017926186291739893,
       "within_target": true
     }
   ],
-  "frozen_at": "2026-10-03T11:22:00.083869+00:00",
+  "frozen_at": "2026-10-03T12:37:07.781640+00:00",
   "implausibility_battery": {
     "brenk_alerts_max": 3,
     "clogp_max": 6.5,
     "fail_threshold_count": 2,
+    "implausible_charge_centres_max": 0,
     "mw_max": 880.0,
     "pains_alerts_max": 1,
     "rotatable_bonds_max": 18.0,
     "sa_score_max": 7.5,
     "tpsa_max": 290.0
   },
-  "joint_flag_rate_on_arm_r": 0.042530755711775045,
+  "joint_flag_rate_on_arm_r": 0.0492091388400703,
   "n_reference": 2845,
   "positive_controls_blind_spot_flagged": [
     false,

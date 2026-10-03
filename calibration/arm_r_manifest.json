@@ -1,6 +1,6 @@
 {
-  "admet_ai_ensemble_variance_available": true,
-  "artifact_sha256": "9aa7bfb0e552fcdf09b6c7284a2aa7aeb7e27f934a66f41740a2dca4a77999a4",
+  "admet_ai_ensemble_variance_available": null,
+  "artifact_sha256": "37851dd6d7a6d269c7b64043853e0deeeb88c88f5ebfe31d857f13e9c4d335b8",
   "columns": [
     "smiles",
     "Solubility_AqSolDB",
@@ -13,6 +13,10 @@
     "Caco2_Wang_normalized",
     "QED",
     "QED_normalized",
+    "Solubility_AqSolDB_ensemble_std",
+    "hERG_ensemble_std",
+    "CYP3A4_Veith_ensemble_std",
+    "Caco2_Wang_ensemble_std",
     "objective_score",
     "valid",
     "fitness",
@@ -27,6 +31,7 @@
     "fraction_csp3",
     "formal_charge",
     "longest_aliphatic_chain",
+    "implausible_charge_centres",
     "pains_alerts",
     "brenk_alerts",
     "hERG_independent__model_control",
@@ -40,9 +45,9 @@
     "ad_similarity_vs_starting"
   ],
   "config": "configs/main.yaml",
-  "config_hash": "280faff689ccf68a5c09d50416e119e6a81d5b83da148c319e2f859fe3b1b030",
+  "config_hash": "00fafdbd64f434e4ee031a193250e45129459537881d6ebe5b4b3bb2c321f6a9",
   "description": "Arm R: approved drugs (DrugBank set shipped with ADMET-AI), scored not optimized",
-  "generated_at": "2026-10-03T11:20:00.959365+00:00",
+  "generated_at": "2026-10-03T12:37:03.505494+00:00",
   "independent_scorer_variants": [
     "model_control",
     "data_control_half",

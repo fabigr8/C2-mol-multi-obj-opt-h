@@ -72,6 +72,7 @@ def test_implausibility_battery_counts_and_threshold():
             "clogp": [1.0, 9.0],
             "tpsa": [50.0, 50.0],
             "rotatable_bonds": [2, 2],
+            "implausible_charge_centres": [0.0, 0.0],
         }
     )
     alerts = pd.DataFrame({"pains_alerts": [0, 0], "brenk_alerts": [0, 0]})
@@ -84,6 +85,7 @@ def test_implausibility_battery_counts_and_threshold():
         "sa_score_max": 6.0,
         "pains_alerts_max": 0,
         "brenk_alerts_max": 0,
+        "implausible_charge_centres_max": 0,
         "fail_threshold_count": 2,
     }
     result = implausibility_battery(panel, alerts, sa, battery)
@@ -94,7 +96,15 @@ def test_implausibility_battery_counts_and_threshold():
 
 
 def test_implausibility_battery_nan_input_fails_every_check_it_touches():
-    panel = pd.DataFrame({"molecular_weight": [np.nan], "clogp": [np.nan], "tpsa": [np.nan], "rotatable_bonds": [np.nan]})
+    panel = pd.DataFrame(
+        {
+            "molecular_weight": [np.nan],
+            "clogp": [np.nan],
+            "tpsa": [np.nan],
+            "rotatable_bonds": [np.nan],
+            "implausible_charge_centres": [np.nan],
+        }
+    )
     alerts = pd.DataFrame({"pains_alerts": [np.nan], "brenk_alerts": [np.nan]})
     battery = {
         "mw_max": 700,
@@ -104,11 +114,14 @@ def test_implausibility_battery_nan_input_fails_every_check_it_touches():
         "sa_score_max": 6.0,
         "pains_alerts_max": 0,
         "brenk_alerts_max": 0,
+        "implausible_charge_centres_max": 0,
         "fail_threshold_count": 2,
     }
     result = implausibility_battery(panel, alerts, np.array([np.nan]), battery)
-    assert result.loc[0, "fail_count"] == 7  # all 7 checks unevaluable -> all fail
+    assert result.loc[0, "fail_count"] == 8  # every check unevaluable -> every check fails
     assert result.loc[0, "implausible"]
+    # An unparseable molecule also trips the disqualifying tier.
+    assert result.loc[0, "disqualified"]
 
 
 def test_select_top_k_orders_by_fitness_descending():

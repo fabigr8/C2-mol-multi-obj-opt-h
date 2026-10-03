@@ -123,3 +123,21 @@ Measured at 1.0 the achieved objective score is unchanged within seed noise
 (0.8118 vs 0.8276), so this does not flatter or penalise the optimizer -- it
 stops ~90% of the compute budget being spent re-evaluating duplicates. The full
 A/B is in `docs/PREREGISTRATION.md`.
+
+## 12. The implausibility battery has a disqualifying tier (brief SS4.5)
+
+Brief SS4.5 defines implausibility as "fails >= 2 of a pre-declared battery".
+That treats every criterion as an exchangeable soft signal, which is right for
+the continuous criteria and wrong for a structural impossibility: a carbanion is
+not half-implausible, and such molecules are small enough to pass every size and
+lipophilicity criterion, so a pure counting rule never flags them.
+
+`implausible_charge_centres` therefore flags a molecule on its own. The
+constraint SS4.5 exists to protect -- no more than 5% of approved drugs flagged
+-- is still enforced over the combined rule (measured 0.0492).
+
+The criterion was added after a reduced-scale rehearsal showed the counting-only
+battery reporting an implausibility rate of 0.000 for every optimized arm while
+a large share of those molecules carried implausible charges. That provenance,
+and the four things that bound the resulting risk, are disclosed in
+`docs/PREREGISTRATION.md` rather than left implicit.

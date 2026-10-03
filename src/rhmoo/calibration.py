@@ -43,7 +43,13 @@ import math
 import numpy as np
 import pandas as pd
 
-from rhmoo.metrics import battery_from_detail, physchem_panel, sa_scores, structural_alerts
+from rhmoo.metrics import (
+    DISQUALIFYING_CHECK_COLUMNS,
+    battery_from_detail,
+    physchem_panel,
+    sa_scores,
+    structural_alerts,
+)
 
 #: Target: no more than this fraction of approved drugs flagged (brief SS4.5).
 TARGET_FLAG_RATE = 0.05
@@ -66,6 +72,7 @@ CONTINUOUS_CRITERIA = {
 COUNT_CRITERIA = {
     "pains_alerts_max": "pains_alerts",
     "brenk_alerts_max": "brenk_alerts",
+    "implausible_charge_centres_max": "implausible_charge_centres",
 }
 
 #: Which battery check each config key produces, for the per-criterion table.
@@ -77,6 +84,7 @@ CRITERION_CHECK_COLUMN = {
     "sa_score_max": "fails_sa",
     "pains_alerts_max": "fails_pains",
     "brenk_alerts_max": "fails_brenk",
+    "implausible_charge_centres_max": "fails_charge",
 }
 
 #: Pre-declared number of criteria a molecule must fail to count as implausible.
@@ -91,8 +99,9 @@ FAIL_THRESHOLD_COUNT = 2
 #: Split into two declared groups, because the measurement showed the battery
 #: is not uniformly sensitive:
 #:
-#: - `DETECTABLE` degeneracy is driven by size, lipophilicity, flexibility or
-#:   structural alerts, which the seven frozen criteria do measure.
+#: - `DETECTABLE` degeneracy is driven by size, lipophilicity, flexibility,
+#:   structural alerts or an implausible ionization state, all of which the
+#:   frozen criteria measure.
 #: - `BLIND_SPOT` degeneracy is driven by ring topology -- an enormous
 #:   macrocycle, or a heavily fused polyaromatic. The frozen criteria contain
 #:   no ring-count, ring-size or aromaticity check, so such molecules fail at
@@ -110,6 +119,13 @@ POSITIVE_CONTROLS_DETECTABLE = {
     "long_alkane_chain": "C" * 60,
     "polyhalogenated_chain": "C(F)(F)" * 20,
     "high_mw_repeat": "c1ccccc1" + "CCO" * 40,
+    # Unusual ionization states, caught by the disqualifying tier. A carbanion
+    # or a bare phosphonium is not an isolable species, and neither trips any
+    # size or lipophilicity criterion -- which is exactly why a pure
+    # "fails >= 2" rule cannot see them.
+    "carbanion": "OCC[C-]Br",
+    "phosphonium_ring": "C1CO[P+]CCO1",
+    "azanide": "C[N-]C=CBr",
 }
 
 POSITIVE_CONTROLS_BLIND_SPOT = {
@@ -218,12 +234,15 @@ def per_criterion_table(reference: pd.DataFrame, result: dict) -> pd.DataFrame:
 
     rows.append(
         {
-            "criterion": f"JOINT_fails_ge_{thresholds['fail_threshold_count']}",
+            "criterion": f"JOINT_fails_ge_{thresholds['fail_threshold_count']}_or_disqualified",
             "column": "implausible",
             "threshold": thresholds["fail_threshold_count"],
             "arm_r_flag_rate": float(checks["implausible"].mean()),
             "alpha": alpha,
-            "rule": f"fail_count >= {thresholds['fail_threshold_count']}",
+            "rule": (
+                f"fail_count >= {thresholds['fail_threshold_count']} OR any disqualifying check "
+                f"({', '.join(DISQUALIFYING_CHECK_COLUMNS)})"
+            ),
         }
     )
     return pd.DataFrame(rows)

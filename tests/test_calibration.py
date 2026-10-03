@@ -24,6 +24,8 @@ def _reference(n: int = 200, seed: int = 0) -> pd.DataFrame:
             "sa_score": rng.normal(3.0, 0.8, n),
             "pains_alerts": rng.binomial(1, 0.05, n).astype(float),
             "brenk_alerts": rng.binomial(3, 0.2, n).astype(float),
+            # Rare, like the real approved-drug distribution (0.74%).
+            "implausible_charge_centres": rng.binomial(1, 0.008, n).astype(float),
         }
     )
 

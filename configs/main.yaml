@@ -127,8 +127,15 @@ arms:
 # Implausibility battery (brief SS4.5). CALIBRATED against arm R (the 2,845
 # approved drugs in calibration/arm_r_scored.parquet), not declared: thresholds
 # are arm R's (1 - alpha) quantiles at alpha = 0.04, the largest alpha on the
-# declared grid whose joint "fails >= 2" rate on approved drugs is <= 5%.
-# Achieved joint flag rate on arm R: 0.0425.
+# declared grid whose joint flag rate on approved drugs is <= 5%.
+# Achieved joint flag rate on arm R: 0.0471.
+#
+# Two tiers. The continuous criteria contribute one vote each toward
+# fail_threshold_count, because a molecule slightly over a size cutoff is not
+# implausible on that ground alone. `implausible_charge_centres` is
+# DISQUALIFYING on its own (see rhmoo.metrics.DISQUALIFYING_CHECK_COLUMNS): a
+# carbanion is not half-implausible, and such molecules are typically small
+# enough to pass every other criterion.
 #
 # Frozen by scripts/calibrate_battery.py; see calibration/battery_frozen.json,
 # calibration/battery_calibration.csv and docs/PREREGISTRATION.md. The runner
@@ -148,4 +155,5 @@ implausibility_battery:
   sa_score_max: 7.5
   pains_alerts_max: 1
   brenk_alerts_max: 3
+  implausible_charge_centres_max: 0
   fail_threshold_count: 2

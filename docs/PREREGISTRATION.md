@@ -34,9 +34,67 @@ have been uninterpretable. The old values are kept in `docs/PLAN.md` rather than
 deleted, because the size of the delta is itself the justification for
 recalibrating.
 
+### Two tiers
+
+Brief SS4.5 defines implausibility as "fails >= 2 of a pre-declared battery",
+which treats every criterion as an exchangeable soft signal. That is right for
+the continuous criteria -- a molecule a little over a size cutoff is not
+implausible on that ground alone -- but wrong for a structural impossibility.
+
+The battery therefore has two tiers:
+
+- **Counting tier.** MW, cLogP, TPSA, rotatable bonds, SA score, PAINS and
+  Brenk each contribute one vote toward `fail_threshold_count` (2).
+- **Disqualifying tier.** `implausible_charge_centres` flags a molecule on its
+  own. A carbanion is not half-implausible, and such molecules are typically
+  small enough to pass every size and lipophilicity criterion, so under a pure
+  counting rule they would never be flagged at all.
+
+The constraint SS4.5 actually exists to protect -- no more than 5% of approved
+drugs flagged -- is enforced over the **combined** rule, so the deviation
+relaxes the brief's wording without relaxing its substance.
+
+### The implausible-charge-centre criterion, and its provenance
+
+Counts charged atoms on the parent fragment (largest fragment, so salts are not
+penalised for their counterion) that are neither a counterion element nor one of
+the three ionization states real drug-like matter routinely shows: ammonium
+(N positive), oxyanion (O negative), and aromatic azolate (aromatic N negative,
+where the ring delocalises the charge). Anything else -- a carbanion, a
+non-aromatic azanide, a phosphonium -- is an unusual ionization state.
+
+**Provenance, stated plainly:** this criterion was added after a reduced-scale
+rehearsal showed the frozen battery reporting an implausibility rate of 0.000
+for every optimized arm while a large share of those molecules were carbanions
+and phosphonium species. It was therefore *not* chosen blind, and that is
+disclosed here rather than left implicit. Four things bound the risk:
+
+1. It is stated as a general chemical principle, not as a pattern matched to the
+   observed exploits, and it spares every legitimate motif it was checked
+   against -- aspirin, choline, sodium benzoate, tetrazolate.
+2. Its threshold is calibrated on **arm R only**, under the same declared rule
+   as every other count criterion.
+3. Arm D -- a random sample of the starting library -- is a clean negative
+   control at 0.000, so the criterion is not merely flagging "whatever the
+   optimizer produces".
+4. No main run has been executed, so the battery remains fixed before any
+   reported result exists.
+
+Measured on arm R it flags **0.74%** of approved drugs, so it describes
+something real drugs essentially never do.
+
+**Headroom note.** Adding a disqualifying criterion consumes headroom against
+the 5% ceiling: the joint rate is 0.0492 against a ceiling of 0.05. A future
+recalibration against a different DrugBank release or RDKit version could cross
+it, in which case `scripts/calibrate_battery.py` will select a smaller alpha and
+report correspondingly looser continuous thresholds. That would be visible in
+its output rather than silent, and the arm R artifact and frozen thresholds are
+hashed and verified by `rhmoo.preflight`, so the numbers cannot drift on their
+own.
+
 ### The rule
 
-The criteria set is **fixed** at the seven pre-declared checks; calibration
+The counting tier's criteria set is **fixed** at the seven pre-declared checks; calibration
 moves only thresholds. Adding criteria at a fixed `fail_threshold_count` makes
 the battery *looser*, because each threshold must then sit further into the
 approved-drug tail to hold the joint rate -- measured directly: a 9-criterion
@@ -59,7 +117,7 @@ rate is monotone non-decreasing in alpha, so the solution is unique.
 
 ### The outcome
 
-**alpha\* = 0.04**, joint flag rate on arm R = **0.0425**.
+**alpha\* = 0.04**, joint flag rate on arm R = **0.0492** (counting tier alone: 0.0425).
 
 | criterion | column | threshold | arm R flag rate | rule |
 |---|---|---|---|---|
@@ -106,9 +164,11 @@ Sensitivity is demonstrated on pre-declared positive controls -- hand-written
 degenerate structures -- so it can be measured without looking at arm A.
 Results are committed to `calibration/battery_positive_controls.csv`.
 
-The calibrated battery flags all three **size/lipophilicity/alert-driven**
-degenerates (a 60-carbon alkane chain, a polyhalogenated chain, a high-MW
-repeat unit).
+The calibrated battery flags all six detectable degenerates: three
+**size/lipophilicity/alert-driven** (a 60-carbon alkane chain, a polyhalogenated
+chain, a high-MW repeat unit) and three **ionization-state** degenerates (a
+carbanion, a phosphonium ring, a non-aromatic azanide), the latter via the
+disqualifying tier.
 
 It does **not** flag either **ring-topology** degenerate: a 42-membered
 all-carbon macrocycle and a heavily fused polyaromatic each fail only one
